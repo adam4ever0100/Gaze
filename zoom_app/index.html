@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attention Monitor - Student</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Zoom SDK -->
+    <script src="https://appssdk.zoom.us/sdk.js"></script>
+    <!-- MediaPipe Face Mesh (self-hosted for Zoom iframe compatibility) -->
+    <script src="/mediapipe/face_mesh.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <circle cx="12" cy="12" r="3" />
+                    <line x1="12" y1="2" x2="12" y2="5" />
+                    <line x1="12" y1="19" x2="12" y2="22" />
+                    <line x1="2" y1="12" x2="5" y2="12" />
+                    <line x1="19" y1="12" x2="22" y2="12" />
+                </svg>
+                <span>Attention Monitor</span>
+            </div>
+            <div class="connection-status" id="connectionStatus">
+                <span class="status-dot"></span>
+                <span class="status-text">Disconnected</span>
+            </div>
+        </header>
+
+        <!-- Consent Section -->
+        <section class="consent-section" id="consentSection">
+            <div class="card">
+                <h2>Welcome to Attention Monitoring</h2>
+                <p class="info-text">
+                    This app monitors your attention during class using your webcam.
+                    <strong>Your privacy is protected:</strong>
+                </p>
+                <ul class="privacy-list">
+                    <li>✓ All video processing happens locally in your browser</li>
+                    <li>✓ No video is stored or transmitted</li>
+                    <li>✓ Only numeric attention scores are shared with your teacher</li>
+                    <li>✓ You can stop monitoring at any time</li>
+                </ul>
+
+                <div class="form-group">
+                    <label for="studentName">Your Name</label>
+                    <input type="text" id="studentName" placeholder="Enter your name" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="meetingId">Meeting ID (optional)</label>
+                    <input type="text" id="meetingId" placeholder="Auto-detected from Zoom">
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="consentCheckbox">
+                    <label for="consentCheckbox">
+                        I understand and consent to attention monitoring during this session
+                    </label>
+                </div>
+
+                <button class="btn btn-primary" id="startBtn" disabled>
+                    Start Monitoring
+                </button>
+            </div>
+        </section>
+
+        <!-- Monitoring Section -->
+        <section class="monitoring-section hidden" id="monitoringSection">
+            <!-- Video Preview (hidden but captures) -->
+            <div class="video-container">
+                <video id="videoElement" autoplay playsinline muted></video>
+                <canvas id="canvasElement"></canvas>
+                <div class="video-overlay" id="videoOverlay">
+                    <span class="face-indicator" id="faceIndicator">👤</span>
+                </div>
+            </div>
+
+            <!-- Attention Score Display -->
+            <div class="card score-card">
+                <div class="score-header">
+                    <h3>Your Attention Score</h3>
+                    <span class="status-badge" id="statusBadge">Focused</span>
+                </div>
+                <div class="score-display">
+                    <div class="score-circle" id="scoreCircle">
+                        <span class="score-value" id="scoreValue">0%</span>
+                    </div>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+            </div>
+
+            <!-- Metrics Grid -->
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-icon" id="faceIcon">👤</div>
+                    <div class="metric-label">Face Detected</div>
+                    <div class="metric-value" id="faceValue">No</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-icon">🎯</div>
+                    <div class="metric-label">Gaze Score</div>
+                    <div class="metric-value" id="gazeValue">0%</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-icon">📐</div>
+                    <div class="metric-label">Head Pose</div>
+                    <div class="metric-value" id="headPoseValue">0%</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-icon">👁️</div>
+                    <div class="metric-label">Eye Openness</div>
+                    <div class="metric-value" id="eyeValue">0%</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-icon">😉</div>
+                    <div class="metric-label">Blink Rate</div>
+                    <div class="metric-value" id="blinkValue">0/min</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-icon">⏱️</div>
+                    <div class="metric-label">Session Time</div>
+                    <div class="metric-value" id="sessionTime">00:00</div>
+                </div>
+            </div>
+
+            <!-- Control Buttons -->
+            <div class="controls">
+                <button class="btn btn-secondary" id="stopBtn">
+                    Stop Monitoring
+                </button>
+            </div>
+        </section>
+
+        <!-- Loading Overlay -->
+        <div class="loading-overlay hidden" id="loadingOverlay">
+            <div class="loading-spinner"></div>
+            <p>Loading AI model...</p>
+        </div>
+    </div>
+
+    <script src="attention.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>

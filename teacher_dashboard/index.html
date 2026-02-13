@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teacher Dashboard - Attention Monitor</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+    <div class="dashboard">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10" />
+                        <circle cx="12" cy="12" r="3" />
+                        <line x1="12" y1="2" x2="12" y2="5" />
+                        <line x1="12" y1="19" x2="12" y2="22" />
+                        <line x1="2" y1="12" x2="5" y2="12" />
+                        <line x1="19" y1="12" x2="22" y2="12" />
+                    </svg>
+                    <span>Attention<br>Monitor</span>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="7" height="7" />
+                        <rect x="14" y="3" width="7" height="7" />
+                        <rect x="14" y="14" width="7" height="7" />
+                        <rect x="3" y="14" width="7" height="7" />
+                    </svg>
+                    Dashboard
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="server-status">
+                    <span class="status-dot" id="serverDot"></span>
+                    <span id="serverStatus">Connecting...</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="main-header">
+                <div class="header-left">
+                    <h1>Class Dashboard</h1>
+                    <p class="subtitle">Real-time attention monitoring</p>
+                </div>
+                <div class="header-right">
+                    <div class="meeting-selector">
+                        <label for="meetingSelect">Meeting:</label>
+                        <select id="meetingSelect">
+                            <option value="default">Default Class</option>
+                        </select>
+                    </div>
+                    <div class="refresh-indicator">
+                        <span class="pulse-dot"></span>
+                        <span>Live</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card primary">
+                    <div class="stat-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                        </svg>
+                    </div>
+                    <div class="stat-content">
+                        <span class="stat-value" id="classAverage">0%</span>
+                        <span class="stat-label">Class Average</span>
+                    </div>
+                    <div class="stat-badge" id="classBadge">Unknown</div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon green">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                            <circle cx="9" cy="7" r="4" />
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                        </svg>
+                    </div>
+                    <div class="stat-content">
+                        <span class="stat-value" id="studentCount">0</span>
+                        <span class="stat-label">Active Students</span>
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon blue">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10" />
+                            <polyline points="12 6 12 12 16 14" />
+                        </svg>
+                    </div>
+                    <div class="stat-content">
+                        <span class="stat-value" id="sessionDuration">00:00</span>
+                        <span class="stat-label">Session Duration</span>
+                    </div>
+                </div>
+
+                <div class="stat-card">
+                    <div class="stat-icon purple">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                        </svg>
+                    </div>
+                    <div class="stat-content">
+                        <span class="stat-value" id="focusedCount">0</span>
+                        <span class="stat-label">Focused</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Section -->
+            <div class="charts-section">
+                <div class="chart-card">
+                    <div class="chart-header">
+                        <h3>Class Engagement Over Time</h3>
+                        <div class="chart-legend">
+                            <span class="legend-item">
+                                <span class="legend-color"></span>
+                                Attention %
+                            </span>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="engagementChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="distribution-card">
+                    <h3>Attention Distribution</h3>
+                    <div class="distribution-bars">
+                        <div class="dist-item">
+                            <div class="dist-label">
+                                <span class="dist-dot focused"></span>
+                                Focused
+                            </div>
+                            <div class="dist-bar">
+                                <div class="dist-fill focused" id="focusedBar"></div>
+                            </div>
+                            <span class="dist-value" id="focusedPercent">0%</span>
+                        </div>
+                        <div class="dist-item">
+                            <div class="dist-label">
+                                <span class="dist-dot partial"></span>
+                                Partial
+                            </div>
+                            <div class="dist-bar">
+                                <div class="dist-fill partial" id="partialBar"></div>
+                            </div>
+                            <span class="dist-value" id="partialPercent">0%</span>
+                        </div>
+                        <div class="dist-item">
+                            <div class="dist-label">
+                                <span class="dist-dot distracted"></span>
+                                Distracted
+                            </div>
+                            <div class="dist-bar">
+                                <div class="dist-fill distracted" id="distractedBar"></div>
+                            </div>
+                            <span class="dist-value" id="distractedPercent">0%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Students Table -->
+            <div class="table-card">
+                <div class="table-header">
+                    <h3>Student Performance</h3>
+                    <div class="table-actions">
+                        <input type="text" id="searchInput" placeholder="Search students..." class="search-input">
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="students-table">
+                        <thead>
+                            <tr>
+                                <th>Student</th>
+                                <th>Attention Score</th>
+                                <th>Status</th>
+                                <th>Activity</th>
+                            </tr>
+                        </thead>
+                        <tbody id="studentsTableBody">
+                            <tr class="empty-row">
+                                <td colspan="4">No students connected yet</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
