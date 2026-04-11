@@ -1,13 +1,7 @@
 # Gaze — Caddy Reverse Proxy
 # Automatic HTTPS with Let's Encrypt
-#
-# For production: replace :80 with your domain name, e.g.:
-#   gaze.yourdomain.com {
-#
-# For testing with IP only (no HTTPS):
-#   :80 {
 
-:80 {
+gaze-classroom.duckdns.org {
     # Socket.IO — always goes to backend
     handle /socket.io/* {
         reverse_proxy backend:5002
