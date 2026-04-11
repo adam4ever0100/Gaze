@@ -150,6 +150,7 @@ function connectSocket() {
 
     // Room events
     state.socket.on('room-joined', handleRoomJoined);
+    state.socket.on('peer-joined', handlePeerJoined);
     state.socket.on('peer-left', handlePeerLeft);
     state.socket.on('room-closed', handleRoomClosed);
 
@@ -352,13 +353,9 @@ function handleRoomJoined(data) {
     showLoading(false);
     updateStatus(true, `Room ${data.room_code}`);
 
-    // Add existing participants to UI (name only, video comes from LiveKit)
-    for (const participant of data.participants) {
-        if (participant.sid !== state.socket.id) {
-            addParticipantUI(participant.sid, participant.name, participant.is_teacher);
-        }
-    }
-    updateParticipantCount();
+    // Existing participants will be shown when LiveKit connects and
+    // fires ParticipantConnected / TrackSubscribed events.
+    // No need to create UI tiles here — LiveKit identity differs from socket SID.
 
     // Request LiveKit token from backend
     showLoading(true, 'Connecting to video server...');
@@ -371,14 +368,23 @@ function handleRoomJoined(data) {
 
 async function handleLivekitToken(data) {
     console.log('Got LiveKit token, connecting to SFU...');
-    try {
-        await connectToLiveKit(data.url, data.token);
-        showLoading(false);
-    } catch (err) {
-        console.error('LiveKit connection error:', err);
-        showErrorBanner('Failed to connect to video server');
-        showLoading(false);
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            await connectToLiveKit(data.url, data.token);
+            showLoading(false);
+            hideErrorBanner();
+            return;
+        } catch (err) {
+            console.error(`LiveKit connection attempt ${attempt}/${maxRetries} failed:`, err);
+            if (attempt < maxRetries) {
+                showLoading(true, `Retrying video connection (${attempt}/${maxRetries})...`);
+                await new Promise(r => setTimeout(r, 2000 * attempt));
+            }
+        }
     }
+    showErrorBanner('Failed to connect to video server — video is unavailable, but attention tracking still works');
+    showLoading(false);
 }
 
 async function connectToLiveKit(url, token) {
@@ -478,23 +484,43 @@ async function connectToLiveKit(url, token) {
 
     // Process any already-connected participants
     room.remoteParticipants.forEach((participant) => {
+        // Ensure tile exists for this participant
+        const name = participant.name || participant.identity;
+        if (!document.getElementById(`tile-${participant.identity}`)) {
+            addParticipantUI(participant.identity, name, participant.identity.startsWith('teacher-'));
+        }
+
         participant.trackPublications.forEach((publication) => {
             if (publication.isSubscribed && publication.track) {
-                // Track already available
                 const el_id = `video-${participant.identity}`;
                 if (publication.track.kind === Track.Kind.Video) {
                     const videoEl = document.getElementById(el_id);
                     if (videoEl) {
                         publication.track.attach(videoEl);
                     }
+                } else if (publication.track.kind === Track.Kind.Audio) {
+                    if (!document.getElementById(`audio-${participant.identity}`)) {
+                        const audioEl = publication.track.attach();
+                        audioEl.id = `audio-${participant.identity}`;
+                        document.body.appendChild(audioEl);
+                    }
                 }
             }
         });
     });
+    updateParticipantCount();
+}
+
+function handlePeerJoined(data) {
+    console.log('Peer joined via Socket.IO:', data.name);
+    // Video tile is created by LiveKit events (ParticipantConnected / TrackSubscribed).
+    // No need to create duplicate UI tiles here.
 }
 
 function handlePeerLeft(data) {
     console.log('Peer left:', data.name);
+    // LiveKit handles removing video tiles via ParticipantDisconnected.
+    // Clean up any leftover Socket.IO-based tiles just in case.
     removePeer(data.sid);
     updateParticipantCount();
 }
@@ -997,7 +1023,12 @@ function showErrorBanner(message) {
     }
     banner.textContent = message;
     banner.style.display = 'block';
-    setTimeout(() => { banner.style.display = 'none'; }, 5000);
+    setTimeout(() => { banner.style.display = 'none'; }, 8000);
+}
+
+function hideErrorBanner() {
+    const banner = document.getElementById('errorBanner');
+    if (banner) banner.style.display = 'none';
 }
 
 // ============================================================
