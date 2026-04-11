@@ -1,0 +1,67 @@
+# Gaze — Production Docker Compose
+# Deploy with: docker compose up -d --build
+
+services:
+  backend:
+    build: .
+    expose:
+      - "5002"
+    env_file:
+      - .env
+    environment:
+      - BACKEND_PORT=5002
+    volumes:
+      - gaze_data:/app/data
+    command: >
+      gunicorn
+        --bind 0.0.0.0:5002
+        --worker-class eventlet
+        --workers 1
+        --timeout 120
+        --access-logfile -
+        backend.server:app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5002/')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  student-app:
+    build: .
+    expose:
+      - "5001"
+    env_file:
+      - .env
+    environment:
+      - STUDENT_APP_PORT=5001
+    command: >
+      gunicorn
+        --bind 0.0.0.0:5001
+        --workers 2
+        --timeout 120
+        --access-logfile -
+        src.api.server:app
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - student-app
+    restart: unless-stopped
+
+volumes:
+  gaze_data:
+  caddy_data:
+  caddy_config:

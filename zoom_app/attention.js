@@ -93,11 +93,25 @@ class AttentionDetector {
             throw new Error('Camera access denied. Please allow camera access.');
         }
 
-        // Initialize MediaPipe Face Mesh (using local files for Zoom iframe compatibility)
+        await this._initFaceMesh();
+    }
+
+    async initializeWithStream(videoElement, canvasElement, existingStream) {
+        console.log('Initializing AttentionDetector with existing stream...');
+
+        this.videoElement = videoElement;
+        this.canvasElement = canvasElement;
+        this.canvasCtx = canvasElement.getContext('2d');
+        this.stream = existingStream;
+
+        await this._initFaceMesh();
+    }
+
+    async _initFaceMesh() {
+        // Initialize MediaPipe Face Mesh (using local files for compatibility)
         console.log('Loading MediaPipe Face Mesh from local files...');
         this.faceMesh = new FaceMesh({
             locateFile: (file) => {
-                // Load all WASM and data files from our local /mediapipe/ directory
                 console.log('Loading MediaPipe file:', file);
                 return `/mediapipe/${file}`;
             }

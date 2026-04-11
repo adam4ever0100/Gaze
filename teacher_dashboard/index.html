@@ -4,43 +4,66 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Teacher Dashboard - Attention Monitor</title>
-    <link rel="stylesheet" href="style.css">
+    <meta name="description" content="Gaze - AI-Powered Attention Monitoring Teacher Dashboard">
+    <title>Gaze — Teacher Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
 </head>
 
-<body>
-    <div class="dashboard">
+<body data-theme="dark">
+    <div class="app-layout">
         <!-- Sidebar -->
         <aside class="sidebar">
-            <div class="sidebar-header">
-                <div class="logo">
-                    <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10" />
-                        <circle cx="12" cy="12" r="3" />
-                        <line x1="12" y1="2" x2="12" y2="5" />
-                        <line x1="12" y1="19" x2="12" y2="22" />
-                        <line x1="2" y1="12" x2="5" y2="12" />
-                        <line x1="19" y1="12" x2="22" y2="12" />
-                    </svg>
-                    <span>Attention<br>Monitor</span>
-                </div>
+            <div class="sidebar-brand">
+                <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <circle cx="12" cy="12" r="3" />
+                </svg>
+                <span>Gaze</span>
             </div>
 
             <nav class="sidebar-nav">
-                <a href="#" class="nav-item active">
+                <a href="#" class="nav-item active" data-view="dashboard">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="3" y="3" width="7" height="7" />
                         <rect x="14" y="3" width="7" height="7" />
-                        <rect x="14" y="14" width="7" height="7" />
                         <rect x="3" y="14" width="7" height="7" />
+                        <rect x="14" y="14" width="7" height="7" />
                     </svg>
                     Dashboard
+                </a>
+                <a href="#" class="nav-item" data-view="history">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10" />
+                        <polyline points="12 6 12 12 16 14" />
+                    </svg>
+                    Past Sessions
                 </a>
             </nav>
 
             <div class="sidebar-footer">
+                <!-- Theme Toggle -->
+                <button class="theme-toggle" id="themeToggle" title="Toggle Light/Dark Mode">
+                    <svg id="themeIconSun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        class="hidden">
+                        <circle cx="12" cy="12" r="5" />
+                        <line x1="12" y1="1" x2="12" y2="3" />
+                        <line x1="12" y1="21" x2="12" y2="23" />
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+                        <line x1="1" y1="12" x2="3" y2="12" />
+                        <line x1="21" y1="12" x2="23" y2="12" />
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+                    </svg>
+                    <svg id="themeIconMoon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                    </svg>
+                </button>
                 <div class="server-status">
                     <span class="status-dot" id="serverDot"></span>
                     <span id="serverStatus">Connecting...</span>
@@ -50,164 +73,233 @@
 
         <!-- Main Content -->
         <main class="main-content">
-            <!-- Header -->
-            <header class="main-header">
-                <div class="header-left">
-                    <h1>Class Dashboard</h1>
-                    <p class="subtitle">Real-time attention monitoring</p>
+            <!-- ============================================ -->
+            <!-- LOGIN VIEW -->
+            <!-- ============================================ -->
+            <section class="view login-view active" id="loginView">
+                <div class="login-card">
+                    <h2>Teacher Login</h2>
+                    <p class="subtitle">Enter the teacher password to access the dashboard</p>
+
+                    <input type="password" id="teacherPassword" placeholder="Enter password" class="form-input">
+                    <input type="text" id="teacherName" placeholder="Your name (optional)" class="form-input">
+
+                    <div class="login-error hidden" id="loginError"></div>
+                    <button class="btn btn-primary btn-large" id="createRoomBtn">Create Classroom</button>
                 </div>
-                <div class="header-right">
-                    <div class="meeting-selector">
-                        <label for="meetingSelect">Meeting:</label>
-                        <select id="meetingSelect">
-                            <option value="default">Default Class</option>
+            </section>
+
+            <!-- ============================================ -->
+            <!-- DASHBOARD VIEW -->
+            <!-- ============================================ -->
+            <section class="view dashboard-view hidden" id="dashboardView">
+                <!-- Dashboard Header -->
+                <div class="main-header">
+                    <div class="header-left">
+                        <h2>Live Dashboard</h2>
+                        <div class="room-badge">
+                            Room: <strong id="roomCodeDisplay">—</strong>
+                        </div>
+                        <div class="session-timer">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14"
+                                height="14">
+                                <circle cx="12" cy="12" r="10" />
+                                <polyline points="12 6 12 12 16 14" />
+                            </svg>
+                            <span id="sessionDuration">00:00</span>
+                        </div>
+                    </div>
+                    <div class="header-actions">
+                        <button class="btn btn-outline" id="exportBtn" title="Export CSV">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16"
+                                height="16">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                <polyline points="7 10 12 15 17 10" />
+                                <line x1="12" y1="15" x2="12" y2="3" />
+                            </svg>
+                            Export
+                        </button>
+                        <button class="btn btn-outline" id="pdfReportBtn" title="Download PDF Report">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16"
+                                height="16">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                <polyline points="14 2 14 8 20 8" />
+                                <line x1="16" y1="13" x2="8" y2="13" />
+                                <line x1="16" y1="17" x2="8" y2="17" />
+                            </svg>
+                            PDF
+                        </button>
+                        <button class="btn btn-danger" id="endSessionBtn">End Session</button>
+                    </div>
+                </div>
+
+                <!-- Alert Toast Area -->
+                <div class="alert-container" id="alertContainer"></div>
+
+                <!-- Join Meeting Button -->
+                <div class="join-meeting-bar" id="joinMeetingBar">
+                    <div class="join-meeting-info">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                            <path d="m23 7-7 5 7 5z" />
+                            <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                        </svg>
+                        <div>
+                            <strong>Online Meeting</strong>
+                            <span class="join-meeting-hint">Join the session to share your screen, chat, and interact with students</span>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" id="joinMeetingBtn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                            <polyline points="10 17 15 12 10 7" />
+                            <line x1="15" y1="12" x2="3" y2="12" />
+                        </svg>
+                        Join Meeting
+                    </button>
+                    <button class="btn btn-danger" onclick="muteAll()" title="Mute all students">
+                        🔇 Mute All
+                    </button>
+                </div>
+
+                <!-- Annotation Bar -->
+                <div class="annotation-bar" id="annotationBar">
+                    <div class="annotation-input-row">
+                        <select id="annotationType" class="annotation-select">
+                            <option value="note">📝 Note</option>
+                            <option value="bookmark">🔖 Bookmark</option>
+                            <option value="warning">⚠️ Concern</option>
+                            <option value="praise">⭐ Praise</option>
                         </select>
+                        <input type="text" id="annotationText"
+                            placeholder="Add annotation... (e.g. 'Students lost focus during slide 5')"
+                            class="annotation-input" maxlength="500">
+                        <button class="btn btn-accent" id="addAnnotationBtn">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16"
+                                height="16">
+                                <line x1="12" y1="5" x2="12" y2="19" />
+                                <line x1="5" y1="12" x2="19" y2="12" />
+                            </svg>
+                            Add
+                        </button>
                     </div>
-                    <div class="refresh-indicator">
-                        <span class="pulse-dot"></span>
-                        <span>Live</span>
-                    </div>
-                </div>
-            </header>
-
-            <!-- Stats Grid -->
-            <div class="stats-grid">
-                <div class="stat-card primary">
-                    <div class="stat-icon">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-                        </svg>
-                    </div>
-                    <div class="stat-content">
-                        <span class="stat-value" id="classAverage">0%</span>
-                        <span class="stat-label">Class Average</span>
-                    </div>
-                    <div class="stat-badge" id="classBadge">Unknown</div>
+                    <div class="annotations-list" id="annotationsList"></div>
                 </div>
 
-                <div class="stat-card">
-                    <div class="stat-icon green">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                            <circle cx="9" cy="7" r="4" />
-                            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                        </svg>
+                <!-- Stats Grid -->
+                <div class="stats-grid">
+                    <div class="stat-card primary">
+                        <div class="stat-label">Class Average</div>
+                        <div class="stat-value" id="classAverage">0%</div>
+                        <div class="stat-trend" id="classTrend">—</div>
                     </div>
-                    <div class="stat-content">
-                        <span class="stat-value" id="studentCount">0</span>
-                        <span class="stat-label">Active Students</span>
+                    <div class="stat-card">
+                        <div class="stat-label">Active Students</div>
+                        <div class="stat-value" id="activeStudents">0</div>
+                    </div>
+                    <div class="stat-card success">
+                        <div class="stat-label">Focused</div>
+                        <div class="stat-value" id="focusedCount">0</div>
+                    </div>
+                    <div class="stat-card danger">
+                        <div class="stat-label">Distracted</div>
+                        <div class="stat-value" id="distractedCount">0</div>
                     </div>
                 </div>
 
-                <div class="stat-card">
-                    <div class="stat-icon blue">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <circle cx="12" cy="12" r="10" />
-                            <polyline points="12 6 12 12 16 14" />
-                        </svg>
+                <!-- Charts Section -->
+                <div class="charts-section">
+                    <div class="chart-card">
+                        <h3>Attention Over Time</h3>
+                        <canvas id="attentionChart"></canvas>
                     </div>
-                    <div class="stat-content">
-                        <span class="stat-value" id="sessionDuration">00:00</span>
-                        <span class="stat-label">Session Duration</span>
-                    </div>
-                </div>
-
-                <div class="stat-card">
-                    <div class="stat-icon purple">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-                        </svg>
-                    </div>
-                    <div class="stat-content">
-                        <span class="stat-value" id="focusedCount">0</span>
-                        <span class="stat-label">Focused</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Charts Section -->
-            <div class="charts-section">
-                <div class="chart-card">
-                    <div class="chart-header">
-                        <h3>Class Engagement Over Time</h3>
-                        <div class="chart-legend">
-                            <span class="legend-item">
-                                <span class="legend-color"></span>
-                                Attention %
-                            </span>
-                        </div>
-                    </div>
-                    <div class="chart-container">
-                        <canvas id="engagementChart"></canvas>
+                    <div class="chart-card">
+                        <h3>Status Distribution</h3>
+                        <canvas id="distributionChart"></canvas>
                     </div>
                 </div>
 
-                <div class="distribution-card">
-                    <h3>Attention Distribution</h3>
-                    <div class="distribution-bars">
-                        <div class="dist-item">
-                            <div class="dist-label">
-                                <span class="dist-dot focused"></span>
-                                Focused
-                            </div>
-                            <div class="dist-bar">
-                                <div class="dist-fill focused" id="focusedBar"></div>
-                            </div>
-                            <span class="dist-value" id="focusedPercent">0%</span>
-                        </div>
-                        <div class="dist-item">
-                            <div class="dist-label">
-                                <span class="dist-dot partial"></span>
-                                Partial
-                            </div>
-                            <div class="dist-bar">
-                                <div class="dist-fill partial" id="partialBar"></div>
-                            </div>
-                            <span class="dist-value" id="partialPercent">0%</span>
-                        </div>
-                        <div class="dist-item">
-                            <div class="dist-label">
-                                <span class="dist-dot distracted"></span>
-                                Distracted
-                            </div>
-                            <div class="dist-bar">
-                                <div class="dist-fill distracted" id="distractedBar"></div>
-                            </div>
-                            <span class="dist-value" id="distractedPercent">0%</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Students Table -->
-            <div class="table-card">
-                <div class="table-header">
-                    <h3>Student Performance</h3>
-                    <div class="table-actions">
+                <!-- Students Table -->
+                <div class="students-section">
+                    <div class="students-header">
+                        <h3>Students</h3>
                         <input type="text" id="searchInput" placeholder="Search students..." class="search-input">
                     </div>
+                    <div class="students-table-wrapper">
+                        <table class="students-table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Score</th>
+                                    <th>Status</th>
+                                    <th>Network</th>
+                                    <th>Activity</th>
+                                    <th>Share</th>
+                                </tr>
+                            </thead>
+                            <tbody id="studentsTableBody"></tbody>
+                        </table>
+                    </div>
                 </div>
-                <div class="table-container">
-                    <table class="students-table">
-                        <thead>
-                            <tr>
-                                <th>Student</th>
-                                <th>Attention Score</th>
-                                <th>Status</th>
-                                <th>Activity</th>
-                            </tr>
-                        </thead>
-                        <tbody id="studentsTableBody">
-                            <tr class="empty-row">
-                                <td colspan="4">No students connected yet</td>
-                            </tr>
-                        </tbody>
-                    </table>
+            </section>
+
+            <!-- ============================================ -->
+            <!-- PAST SESSIONS VIEW -->
+            <!-- ============================================ -->
+            <section class="view history-view hidden" id="historyView">
+                <div class="main-header">
+                    <h2>Past Sessions</h2>
                 </div>
-            </div>
+
+                <div id="sessionsList" class="sessions-list"></div>
+
+                <!-- Session Detail Modal -->
+                <div class="session-detail-overlay hidden" id="sessionDetailOverlay">
+                    <div class="session-detail-modal">
+                        <div class="modal-header">
+                            <h3 id="modalTitle">Session Details</h3>
+                            <button class="btn-close" id="closeModal">&times;</button>
+                        </div>
+                        <div class="modal-tabs">
+                            <button class="modal-tab active" data-tab="summary">Summary</button>
+                            <button class="modal-tab" data-tab="attendance">Attendance</button>
+                            <button class="modal-tab" data-tab="ai-summary">AI Summary</button>
+                            <button class="modal-tab" data-tab="annotations">Annotations</button>
+                            <button class="modal-tab" data-tab="timeline">Timeline</button>
+                        </div>
+                        <div class="modal-body" id="modalBody">
+                            <div class="modal-loading">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </main>
     </div>
+
+    <!-- Screen Share Full-Screen Overlay -->
+    <div class="screen-share-overlay hidden" id="screenShareOverlay">
+        <div class="screen-share-header">
+            <div class="screen-share-info">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                    <line x1="8" y1="21" x2="16" y2="21" />
+                    <line x1="12" y1="17" x2="12" y2="21" />
+                </svg>
+                <span id="screenShareName">Screen Share</span>
+            </div>
+            <button class="btn btn-outline screen-share-exit" id="exitScreenShareBtn" title="Exit Full Screen (ESC)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
+                </svg>
+                Exit Full Screen
+            </button>
+        </div>
+        <video id="screenShareVideo" autoplay playsinline></video>
+    </div>
+
+    <!-- Notification Sound -->
+    <audio id="notifSound" preload="auto">
+        <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQ==" type="audio/wav">
+    </audio>
 
     <script src="app.js"></script>
 </body>

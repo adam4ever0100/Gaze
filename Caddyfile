@@ -1,0 +1,41 @@
+# Gaze — Caddy Reverse Proxy
+# Automatic HTTPS with Let's Encrypt
+#
+# For production: replace :80 with your domain name, e.g.:
+#   gaze.yourdomain.com {
+#
+# For testing with IP only (no HTTPS):
+#   :80 {
+
+:80 {
+    # Student App (default)
+    handle /socket.io/* {
+        reverse_proxy backend:5002
+    }
+
+    # Teacher Dashboard
+    handle /teacher/* {
+        uri strip_prefix /teacher
+        reverse_proxy backend:5002
+    }
+
+    # Teacher Dashboard WebSocket
+    handle /teacher/socket.io/* {
+        uri strip_prefix /teacher
+        reverse_proxy backend:5002
+    }
+
+    # Teacher static assets
+    handle /style.css {
+        reverse_proxy backend:5002
+    }
+
+    handle /app.js {
+        reverse_proxy backend:5002
+    }
+
+    # Student App (catch-all)
+    handle {
+        reverse_proxy student-app:5001
+    }
+}

@@ -8,13 +8,10 @@ dist/
 build/
 *.egg
 
-# Virtual environment
+# Virtual Environment
 .venv/
 venv/
 env/
-
-# Environment variables
-.env
 
 # IDE
 .vscode/
@@ -23,15 +20,23 @@ env/
 *.swo
 *~
 
+# Environment
+.env
+certs/
+
+# Database
+data/gaze.db
+data/*.db
+
 # OS
 .DS_Store
 Thumbs.db
 
-# Node modules (for zoom_app / teacher_dashboard)
-node_modules/
+# pytest
+.pytest_cache/
 
-# Jupyter
-.ipynb_checkpoints/
+# Byte-compiled
+*.pyc
 
 # Logs
 *.log
