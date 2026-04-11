@@ -8,29 +8,14 @@
 #   :80 {
 
 :80 {
-    # Student App (default)
+    # Socket.IO — always goes to backend
     handle /socket.io/* {
         reverse_proxy backend:5002
     }
 
-    # Teacher Dashboard
+    # Teacher Dashboard — everything under /teacher/
     handle /teacher/* {
         uri strip_prefix /teacher
-        reverse_proxy backend:5002
-    }
-
-    # Teacher Dashboard WebSocket
-    handle /teacher/socket.io/* {
-        uri strip_prefix /teacher
-        reverse_proxy backend:5002
-    }
-
-    # Teacher static assets
-    handle /style.css {
-        reverse_proxy backend:5002
-    }
-
-    handle /app.js {
         reverse_proxy backend:5002
     }
 

@@ -13,6 +13,11 @@
  * - Keyboard shortcuts
  */
 
+// Auto-detect base path for API calls
+// In production behind Caddy, teacher pages are at /teacher/ and API calls
+// must go through /teacher/... so Caddy routes them to the backend.
+const TEACHER_BASE = window.location.pathname.startsWith('/teacher') ? '/teacher' : '';
+
 // ============================================================
 // State
 // ============================================================
@@ -621,7 +626,7 @@ function showAlert(msg, type = 'info') {
 
 async function loadSessionHistory() {
     try {
-        const res = await fetch('/sessions');
+        const res = await fetch(`${TEACHER_BASE}/sessions`);
         const data = await res.json();
         if (!data.success) return;
 
@@ -668,11 +673,11 @@ async function loadSessionTab(tab, sessionId) {
     try {
         let endpoint = '';
         switch (tab) {
-            case 'summary': endpoint = `/sessions/${sessionId}/summary`; break;
-            case 'attendance': endpoint = `/sessions/${sessionId}/attendance`; break;
-            case 'ai-summary': endpoint = `/sessions/${sessionId}/ai-summary`; break;
-            case 'annotations': endpoint = `/sessions/${sessionId}/annotations`; break;
-            case 'timeline': endpoint = `/sessions/${sessionId}/analytics`; break;
+            case 'summary': endpoint = `${TEACHER_BASE}/sessions/${sessionId}/summary`; break;
+            case 'attendance': endpoint = `${TEACHER_BASE}/sessions/${sessionId}/attendance`; break;
+            case 'ai-summary': endpoint = `${TEACHER_BASE}/sessions/${sessionId}/ai-summary`; break;
+            case 'annotations': endpoint = `${TEACHER_BASE}/sessions/${sessionId}/annotations`; break;
+            case 'timeline': endpoint = `${TEACHER_BASE}/sessions/${sessionId}/analytics`; break;
         }
 
         const res = await fetch(endpoint);
@@ -853,7 +858,7 @@ function renderTimelineTab(data) {
 
 function exportCurrentSession() {
     if (!state.roomCode) return;
-    fetch(`/sessions/1/export`)
+    fetch(`${TEACHER_BASE}/sessions/1/export`)
         .then(r => r.blob())
         .then(blob => {
             const url = URL.createObjectURL(blob);
