@@ -160,12 +160,12 @@ SECURITY_HEADERS = {
         "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.socket.io blob:; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
-        "connect-src 'self' http://localhost:* http://127.0.0.1:* http://0.0.0.0:* "
-        "ws://localhost:* ws://127.0.0.1:* ws://0.0.0.0:* "
-        "http://192.168.*:* ws://192.168.*:* "
-        "https://*.ngrok-free.dev wss://*.ngrok-free.dev blob:; "
+        "connect-src 'self' "
+        "https://*.livekit.cloud wss://*.livekit.cloud "
+        "https://*.duckdns.org wss://*.duckdns.org "
+        "ws://localhost:* http://localhost:* blob:; "
         "worker-src 'self' blob:; "
-        "media-src 'self' blob:;"
+        "media-src 'self' blob: data:;"
     ),
     "X-Content-Type-Options": "nosniff",
     "X-XSS-Protection": "1; mode=block",
