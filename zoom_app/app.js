@@ -393,10 +393,10 @@ async function connectToLiveKit(url, token) {
     const room = new Room({
         adaptiveStream: true,
         dynacast: true,
-        autoSubscribe: true,
-        videoCaptureDefaults: {
-            resolution: VideoPresets.h360.resolution
-        }
+        autoSubscribe: true
+        // videoCaptureDefaults intentionally omitted — tracks are published
+        // manually via publishTrack(), so this option has no effect and
+        // VideoPresets.h360 may not exist in all SDK versions.
     });
 
     state.livekitRoom = room;

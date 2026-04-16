@@ -297,10 +297,10 @@ async function connectTeacherToLiveKit(url, token) {
 
     const room = new Room({
         adaptiveStream: true,
-        dynacast: true,
-        videoCaptureDefaults: {
-            resolution: VideoPresets.h720.resolution
-        }
+        dynacast: true
+        // videoCaptureDefaults intentionally omitted — tracks are published
+        // manually via publishTrack(), so this option has no effect and
+        // VideoPresets.h720 may not exist in all SDK versions.
     });
 
     state.livekitRoom = room;
