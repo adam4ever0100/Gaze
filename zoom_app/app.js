@@ -393,6 +393,7 @@ async function connectToLiveKit(url, token) {
     const room = new Room({
         adaptiveStream: true,
         dynacast: true,
+        autoSubscribe: true,
         videoCaptureDefaults: {
             resolution: VideoPresets.h360.resolution
         }
@@ -400,39 +401,70 @@ async function connectToLiveKit(url, token) {
 
     state.livekitRoom = room;
 
-    // --- Track Subscribed: remote participant's track is ready ---
-    room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
-        const el_id = `video-${participant.identity}`;
-        let tile = document.getElementById(`tile-${participant.identity}`);
+    // --- Reusable track attachment helper ---
+    function attachTrack(track, publication, participant) {
+        const identity = participant.identity;
+        const el_id = `video-${identity}`;
+        let tile = document.getElementById(`tile-${identity}`);
 
         if (!tile) {
-            const name = participant.name || participant.identity;
-            addParticipantUI(participant.identity, name, participant.identity.startsWith('teacher-'));
-            tile = document.getElementById(`tile-${participant.identity}`);
+            const name = participant.name || identity;
+            addParticipantUI(identity, name, identity.startsWith('teacher-'));
+            tile = document.getElementById(`tile-${identity}`);
         }
 
         if (track.kind === Track.Kind.Video) {
-            const videoEl = document.getElementById(el_id);
-            if (videoEl) {
-                track.attach(videoEl);
-            }
-
-            // Handle screen share fullscreen
             if (publication.source === Track.Source.ScreenShare) {
+                // Screen share → fullscreen overlay
                 const stream = new MediaStream([track.mediaStreamTrack]);
-                const name = participant.name || participant.identity;
+                const name = participant.name || identity;
                 if (el.screenShareName) el.screenShareName.textContent = `${name} is sharing`;
-                showScreenShareFullscreen(participant.identity, stream);
+                showScreenShareFullscreen(identity, stream);
+            } else {
+                // Camera track → video tile
+                const videoEl = document.getElementById(el_id);
+                if (videoEl) {
+                    track.attach(videoEl);
+                }
             }
         } else if (track.kind === Track.Kind.Audio) {
-            const audioEl = track.attach();
-            audioEl.id = `audio-${participant.identity}`;
-            document.body.appendChild(audioEl);
+            if (!document.getElementById(`audio-${identity}`)) {
+                const audioEl = track.attach();
+                audioEl.id = `audio-${identity}`;
+                document.body.appendChild(audioEl);
+            }
         }
+    }
+
+    // Helper: process all published tracks for a given participant
+    function syncParticipantTracks(participant) {
+        const identity = participant.identity;
+        const name = participant.name || identity;
+
+        // Ensure UI tile exists
+        if (!document.getElementById(`tile-${identity}`)) {
+            addParticipantUI(identity, name, identity.startsWith('teacher-'));
+        }
+
+        participant.trackPublications.forEach((publication) => {
+            if (publication.isSubscribed && publication.track) {
+                attachTrack(publication.track, publication, participant);
+            } else if (!publication.isSubscribed && publication.kind) {
+                // Force-subscribe if auto-subscribe missed it
+                publication.setSubscribed(true);
+            }
+        });
+    }
+
+    // --- Track Subscribed: remote participant's track is ready ---
+    room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+        console.log(`[LK] TrackSubscribed: ${participant.identity} ${track.kind} (${publication.source})`);
+        attachTrack(track, publication, participant);
     });
 
     // --- Track Unsubscribed ---
     room.on(RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
+        console.log(`[LK] TrackUnsubscribed: ${participant.identity}`);
         track.detach().forEach(el => el.remove());
 
         if (publication.source === Track.Source.ScreenShare) {
@@ -440,23 +472,57 @@ async function connectToLiveKit(url, token) {
         }
     });
 
+    // --- Track Published: a remote participant published a new track ---
+    // This fires BEFORE TrackSubscribed. Ensure we subscribe and have a tile ready.
+    room.on(RoomEvent.TrackPublished, (publication, participant) => {
+        console.log(`[LK] TrackPublished: ${participant.identity} ${publication.kind} (subscribed: ${publication.isSubscribed})`);
+        const identity = participant.identity;
+
+        // Ensure tile exists so the track has somewhere to attach when subscribed
+        if (!document.getElementById(`tile-${identity}`)) {
+            addParticipantUI(identity, participant.name || identity, identity.startsWith('teacher-'));
+        }
+
+        // Force subscribe if not already
+        if (!publication.isSubscribed) {
+            publication.setSubscribed(true);
+        }
+    });
+
     // --- Participant Connected ---
     room.on(RoomEvent.ParticipantConnected, (participant) => {
-        console.log('Participant connected:', participant.identity);
+        console.log(`[LK] ParticipantConnected: ${participant.identity}`);
         addParticipantUI(participant.identity, participant.name || participant.identity, participant.identity.startsWith('teacher-'));
         updateParticipantCount();
+
+        // Process any tracks already published by this participant
+        syncParticipantTracks(participant);
     });
 
     // --- Participant Disconnected ---
     room.on(RoomEvent.ParticipantDisconnected, (participant) => {
-        console.log('Participant disconnected:', participant.identity);
+        console.log(`[LK] ParticipantDisconnected: ${participant.identity}`);
         removePeer(participant.identity);
+        updateParticipantCount();
+    });
+
+    // --- Room fully connected: all existing participants are available NOW ---
+    room.on(RoomEvent.Connected, () => {
+        console.log(`[LK] Room connected. Remote participants: ${room.remoteParticipants.size}`);
+        room.remoteParticipants.forEach((participant) => {
+            syncParticipantTracks(participant);
+        });
         updateParticipantCount();
     });
 
     // --- Disconnected from room ---
     room.on(RoomEvent.Disconnected, (reason) => {
-        console.log('Disconnected from LiveKit:', reason);
+        console.log('[LK] Disconnected from LiveKit:', reason);
+        // Stop the sync interval
+        if (state._livekitSyncInterval) {
+            clearInterval(state._livekitSyncInterval);
+            state._livekitSyncInterval = null;
+        }
     });
 
     // Connect to LiveKit room
@@ -482,33 +548,65 @@ async function connectToLiveKit(url, token) {
         }
     }
 
-    // Process any already-connected participants
+    // Process any already-connected participants (right after connect)
     room.remoteParticipants.forEach((participant) => {
-        // Ensure tile exists for this participant
-        const name = participant.name || participant.identity;
-        if (!document.getElementById(`tile-${participant.identity}`)) {
-            addParticipantUI(participant.identity, name, participant.identity.startsWith('teacher-'));
-        }
-
-        participant.trackPublications.forEach((publication) => {
-            if (publication.isSubscribed && publication.track) {
-                const el_id = `video-${participant.identity}`;
-                if (publication.track.kind === Track.Kind.Video) {
-                    const videoEl = document.getElementById(el_id);
-                    if (videoEl) {
-                        publication.track.attach(videoEl);
-                    }
-                } else if (publication.track.kind === Track.Kind.Audio) {
-                    if (!document.getElementById(`audio-${participant.identity}`)) {
-                        const audioEl = publication.track.attach();
-                        audioEl.id = `audio-${participant.identity}`;
-                        document.body.appendChild(audioEl);
-                    }
-                }
-            }
-        });
+        syncParticipantTracks(participant);
     });
     updateParticipantCount();
+
+    // Safety net: re-sync 1s and 3s after connect in case remoteParticipants
+    // was not fully populated immediately after room.connect() resolved.
+    setTimeout(() => {
+        if (!state.livekitRoom) return;
+        console.log(`[LK] 1s delayed sync — remote participants: ${state.livekitRoom.remoteParticipants.size}`);
+        state.livekitRoom.remoteParticipants.forEach(syncParticipantTracks);
+        updateParticipantCount();
+    }, 1000);
+    setTimeout(() => {
+        if (!state.livekitRoom) return;
+        console.log(`[LK] 3s delayed sync — remote participants: ${state.livekitRoom.remoteParticipants.size}`);
+        state.livekitRoom.remoteParticipants.forEach(syncParticipantTracks);
+        updateParticipantCount();
+    }, 3000);
+
+    // Periodic sync: catch any tracks missed by events (runs every 3 seconds)
+    if (state._livekitSyncInterval) clearInterval(state._livekitSyncInterval);
+    state._livekitSyncInterval = setInterval(() => {
+        if (!state.livekitRoom) return;
+        state.livekitRoom.remoteParticipants.forEach((participant) => {
+            const identity = participant.identity;
+
+            // Create tile if missing
+            if (!document.getElementById(`tile-${identity}`)) {
+                addParticipantUI(identity, participant.name || identity, identity.startsWith('teacher-'));
+            }
+
+            // Attach any subscribed but unattached video tracks
+            participant.trackPublications.forEach((publication) => {
+                if (publication.isSubscribed && publication.track) {
+                    if (publication.track.kind === Track.Kind.Video && publication.source !== Track.Source.ScreenShare) {
+                        const videoEl = document.getElementById(`video-${identity}`);
+                        if (videoEl && !videoEl.srcObject) {
+                            console.log(`[LK Sync] Re-attaching video for ${identity}`);
+                            publication.track.attach(videoEl);
+                        }
+                    } else if (publication.track.kind === Track.Kind.Audio) {
+                        if (!document.getElementById(`audio-${identity}`)) {
+                            console.log(`[LK Sync] Re-attaching audio for ${identity}`);
+                            const audioEl = publication.track.attach();
+                            audioEl.id = `audio-${identity}`;
+                            document.body.appendChild(audioEl);
+                        }
+                    }
+                } else if (!publication.isSubscribed && publication.kind) {
+                    // Not subscribed yet — force it
+                    console.log(`[LK Sync] Force-subscribing to ${identity} ${publication.kind}`);
+                    publication.setSubscribed(true);
+                }
+            });
+        });
+        updateParticipantCount();
+    }, 3000);
 }
 
 function handlePeerJoined(data) {
@@ -520,8 +618,9 @@ function handlePeerJoined(data) {
 function handlePeerLeft(data) {
     console.log('Peer left:', data.name);
     // LiveKit handles removing video tiles via ParticipantDisconnected.
-    // Clean up any leftover Socket.IO-based tiles just in case.
+    // Clean up any leftover tiles — try both raw SID and LiveKit identity format.
     removePeer(data.sid);
+    removePeer(`student-${data.sid}`);
     updateParticipantCount();
 }
 
@@ -540,6 +639,12 @@ function leaveRoom() {
 
     if (state.detector) {
         state.detector.stop();
+    }
+
+    // Stop periodic LiveKit sync
+    if (state._livekitSyncInterval) {
+        clearInterval(state._livekitSyncInterval);
+        state._livekitSyncInterval = null;
     }
 
     // Disconnect from LiveKit
@@ -641,7 +746,14 @@ function addParticipantUI(sid, name, isTeacher) {
 }
 
 function updateParticipantCount() {
-    const count = document.querySelectorAll('.participant-item').length + 1; // +1 for self
+    // Primary: count from LiveKit's authoritative participant list
+    let count = 1; // always include self
+    if (state.livekitRoom && state.livekitRoom.remoteParticipants) {
+        count += state.livekitRoom.remoteParticipants.size;
+    } else {
+        // Fallback: count DOM participant items
+        count += document.querySelectorAll('.participant-item').length;
+    }
     el.participantCount.textContent = count;
 }
 
