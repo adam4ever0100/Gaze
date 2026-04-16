@@ -37,9 +37,17 @@ const state = {
     cameraOn: true,
     micOn: true,
     videoCollapsed: false,
+    isScreenSharing: false,
+    screenStream: null,
     teacherName: 'Teacher',
-    // Network quality tracking
+    // Chat
+    chatCollapsed: false,
+    unreadCount: 0,
+    // Hand raise
+    handRaised: false,
+    // Network quality tracking (legacy)
     networkStats: {},
+    peers: {},
     networkInterval: null,
     // Notifications
     notificationsEnabled: false,
@@ -138,7 +146,15 @@ const el = {
     screenShareOverlay: document.getElementById('screenShareOverlay'),
     screenShareVideo: document.getElementById('screenShareVideo'),
     screenShareName: document.getElementById('screenShareName'),
-    exitScreenShareBtn: document.getElementById('exitScreenShareBtn')
+    exitScreenShareBtn: document.getElementById('exitScreenShareBtn'),
+
+    // Teacher meeting panel (added to HTML)
+    shareScreenBtn: document.getElementById('shareScreenBtn'),
+    teacherHandRaiseBtn: document.getElementById('teacherHandRaiseBtn'),
+    teacherReactionMenu: document.getElementById('teacherReactionMenu'),
+    teacherChatMessages: document.getElementById('teacherChatMessages'),
+    teacherChatInput: document.getElementById('teacherChatInput'),
+    chatBadge: document.getElementById('chatBadge')
 };
 
 // ============================================================
@@ -237,7 +253,7 @@ async function handleRoomCreated(data) {
 
     showView('dashboard');
     el.roomCodeDisplay.textContent = data.room_code;
-    el.teacherVideoName.textContent = `${state.teacherName} (You)`;
+    if (el.teacherVideoName) el.teacherVideoName.textContent = `${state.teacherName} (You)`;
     initChart();
     initDistributionChart();
 
@@ -247,19 +263,19 @@ async function handleRoomCreated(data) {
     // Request notification permission
     requestNotificationPermission();
 
-    // Start camera
+    // Start camera & request LiveKit token (teacher is always in the room)
     try {
         state.localStream = await navigator.mediaDevices.getUserMedia({
             video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
             audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
         });
-        el.teacherLocalVideo.srcObject = state.localStream;
+        if (el.teacherLocalVideo) el.teacherLocalVideo.srcObject = state.localStream;
     } catch (err) {
         console.error('Camera access error:', err);
         showAlert('Could not access camera. Video will be unavailable.', 'warning');
     }
 
-    // Request LiveKit token to join the SFU room
+    // Request LiveKit token to join the SFU room as host
     state.socket.emit('get-livekit-token');
 
     // Start network quality monitoring
@@ -320,18 +336,36 @@ async function connectTeacherToLiveKit(url, token) {
 
     // --- Participant Connected ---
     room.on(RoomEvent.ParticipantConnected, (participant) => {
-        console.log('Participant connected to LiveKit:', participant.identity);
+        console.log('[Teacher LK] ParticipantConnected:', participant.identity);
+        // Subscribe to all their tracks
+        participant.trackPublications.forEach((pub) => {
+            if (!pub.isSubscribed) pub.setSubscribed(true);
+        });
     });
 
     // --- Participant Disconnected ---
     room.on(RoomEvent.ParticipantDisconnected, (participant) => {
-        console.log('Participant disconnected from LiveKit:', participant.identity);
+        console.log('[Teacher LK] ParticipantDisconnected:', participant.identity);
         removePeer(participant.identity);
+    });
+
+    // --- Room fully connected — sync all existing participants ---
+    room.on(RoomEvent.Connected, () => {
+        console.log('[Teacher LK] Room connected. Remote participants:', room.remoteParticipants.size);
+        room.remoteParticipants.forEach((p) => {
+            p.trackPublications.forEach((pub) => {
+                if (!pub.isSubscribed) pub.setSubscribed(true);
+                if (pub.isSubscribed && pub.track && pub.track.kind === Track.Kind.Video &&
+                    pub.source !== Track.Source.ScreenShare) {
+                    if (el.teacherVideoGrid) addRemoteVideoTile(p.identity, p.name || p.identity, pub.track);
+                }
+            });
+        });
     });
 
     // Connect
     await room.connect(url, token);
-    console.log('Teacher connected to LiveKit SFU room:', room.name);
+    console.log('[Teacher LK] Connected to room:', room.name);
 
     // Publish local tracks
     if (state.localStream) {
@@ -351,16 +385,22 @@ async function connectTeacherToLiveKit(url, token) {
         }
     }
 
-    // Process already-connected participants
-    room.remoteParticipants.forEach((participant) => {
-        participant.trackPublications.forEach((publication) => {
-            if (publication.isSubscribed && publication.track) {
-                if (publication.track.kind === Track.Kind.Video) {
-                    addRemoteVideoTile(participant.identity, participant.name || participant.identity, publication.track);
+    // Process already-connected participants immediately after connect()
+    function syncTeacherParticipants() {
+        room.remoteParticipants.forEach((p) => {
+            p.trackPublications.forEach((pub) => {
+                if (!pub.isSubscribed) pub.setSubscribed(true);
+                if (pub.isSubscribed && pub.track && pub.track.kind === Track.Kind.Video &&
+                    pub.source !== Track.Source.ScreenShare) {
+                    if (el.teacherVideoGrid) addRemoteVideoTile(p.identity, p.name || p.identity, pub.track);
                 }
-            }
+            });
         });
-    });
+    }
+
+    syncTeacherParticipants();
+    setTimeout(syncTeacherParticipants, 1000);
+    setTimeout(syncTeacherParticipants, 3000);
 }
 
 function handleStudentJoined(data) {
@@ -887,10 +927,13 @@ function removePeer(identity) {
 // ============================================================
 
 function addRemoteVideoTile(identity, name, livekitTrack) {
+    // Guard: video grid might not be in DOM yet (hidden)
+    if (!el.teacherVideoGrid) return;
+
     const existing = document.getElementById(`teacher-tile-${identity}`);
     if (existing) {
         const v = existing.querySelector('video');
-        if (v) livekitTrack.attach(v);
+        if (v && !v.srcObject) livekitTrack.attach(v);
         return;
     }
 
@@ -1057,6 +1100,7 @@ function revokeScreenShare(sid) {
 // ============================================================
 
 function handleTeacherChatMessage(data) {
+    if (!el.teacherChatMessages) return; // meeting panel not visible yet is fine
     const msgEl = document.createElement('div');
     msgEl.className = `chat-msg ${data.is_teacher ? 'teacher' : ''}`;
     const time = new Date(data.timestamp * 1000);
@@ -1069,17 +1113,21 @@ function handleTeacherChatMessage(data) {
     el.teacherChatMessages.appendChild(msgEl);
     el.teacherChatMessages.scrollTop = el.teacherChatMessages.scrollHeight;
 
-    // Show unread badge if chat is collapsed
-    if (state.chatCollapsed) {
+    // Show unread badge if meeting panel is hidden
+    const videoSection = document.getElementById('videoSection');
+    if (videoSection && videoSection.classList.contains('hidden')) {
         state.unreadCount++;
-        el.chatBadge.textContent = state.unreadCount;
-        el.chatBadge.classList.remove('hidden');
+        if (el.chatBadge) {
+            el.chatBadge.textContent = state.unreadCount;
+            el.chatBadge.classList.remove('hidden');
+        }
     }
 
     if (!data.is_teacher) playNotificationSound();
 }
 
 function sendTeacherChatMessage() {
+    if (!el.teacherChatInput) return;
     const msg = el.teacherChatInput.value.trim();
     if (!msg || !state.socket) return;
     state.socket.emit('send-message', { message: msg });
@@ -1122,10 +1170,17 @@ function sendTeacherReaction(emoji) {
 
 function toggleVideoSection() {
     state.videoCollapsed = !state.videoCollapsed;
-    el.teacherVideoGrid.classList.toggle('collapsed', state.videoCollapsed);
-    el.collapseIcon.innerHTML = state.videoCollapsed
-        ? '<polyline points="6 9 12 15 18 9" />'
-        : '<polyline points="18 15 12 9 6 15" />';
+    if (el.teacherVideoGrid) {
+        el.teacherVideoGrid.classList.toggle('collapsed', state.videoCollapsed);
+    }
+}
+
+function leaveMeeting() {
+    const panel = document.getElementById('videoSection');
+    const bar = document.getElementById('joinMeetingBar');
+    if (panel) panel.classList.add('hidden');
+    if (bar) bar.classList.remove('hidden');
+    showAlert('Left meeting view — still monitoring students', 'info');
 }
 
 // ============================================================
@@ -1308,14 +1363,23 @@ function init() {
     el.endSessionBtn.addEventListener('click', endSession);
     el.searchInput.addEventListener('input', () => updateStudentsTable(state.cachedStudents));
 
-    // Join Meeting button — opens student app with room code
+    // Join Meeting button — shows teacher video meeting panel inline
     el.joinMeetingBtn.addEventListener('click', () => {
-        if (state.roomCode) {
-            const studentAppUrl = `http://${window.location.hostname}:5001?room=${state.roomCode}&name=${encodeURIComponent(state.teacherName)}`;
-            window.open(studentAppUrl, '_blank');
-        } else {
+        if (!state.roomCode) {
             showAlert('No active room to join.', 'warning');
+            return;
         }
+        const panel = document.getElementById('videoSection');
+        const bar = document.getElementById('joinMeetingBar');
+        if (panel) panel.classList.remove('hidden');
+        if (bar) bar.classList.add('hidden');
+        // Update room badge in panel
+        const badge = document.getElementById('meetingRoomBadge');
+        if (badge) badge.textContent = state.roomCode;
+        // Reset unread count
+        state.unreadCount = 0;
+        if (el.chatBadge) el.chatBadge.classList.add('hidden');
+        showAlert('Joined meeting as host 🎤', 'success');
     });
 
     // Annotations

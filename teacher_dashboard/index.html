@@ -161,6 +161,94 @@
                     </button>
                 </div>
 
+            <!-- ============================================ -->
+            <!-- TEACHER LIVE MEETING PANEL                  -->
+            <!-- Shown when teacher clicks "Join Meeting"    -->
+            <!-- ============================================ -->
+            <div class="teacher-meeting-panel hidden" id="videoSection">
+                <!-- Controls Bar -->
+                <div class="meeting-controls-bar">
+                    <div class="meeting-info-bar">
+                        <span class="live-dot-pulse"></span>
+                        <strong>In Meeting</strong>
+                        <span class="meeting-chip">Room <span id="meetingRoomBadge">—</span></span>
+                    </div>
+                    <div class="meeting-action-btns">
+                        <button class="meet-btn" id="toggleTeacherCameraBtn" onclick="toggleTeacherCamera()" title="Toggle Camera (V)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+                                <path d="m23 7-7 5 7 5V7z"/>
+                                <rect x="1" y="5" width="15" height="14" rx="2"/>
+                            </svg>
+                            Camera
+                        </button>
+                        <button class="meet-btn" id="toggleTeacherMicBtn" onclick="toggleTeacherMic()" title="Toggle Mic (M)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                                <line x1="12" y1="19" x2="12" y2="23"/>
+                                <line x1="8" y1="23" x2="16" y2="23"/>
+                            </svg>
+                            Mic
+                        </button>
+                        <button class="meet-btn" id="shareScreenBtn" onclick="toggleTeacherScreenShare()" title="Share Screen">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+                                <rect x="2" y="3" width="20" height="14" rx="2"/>
+                                <path d="M8 21h8M12 17v4"/>
+                            </svg>
+                            Share
+                        </button>
+                        <button class="meet-btn" id="teacherHandRaiseBtn" onclick="toggleTeacherHandRaise()" title="Raise Hand">
+                            ✋ Hand
+                        </button>
+                        <div style="position:relative;">
+                            <button class="meet-btn" onclick="document.getElementById('teacherReactionMenu').classList.toggle('hidden')" title="Send Reaction">
+                                😊 React
+                            </button>
+                            <div class="teacher-reaction-menu hidden" id="teacherReactionMenu">
+                                <button onclick="sendTeacherReaction('👍')">👍</button>
+                                <button onclick="sendTeacherReaction('😕')">😕</button>
+                                <button onclick="sendTeacherReaction('❓')">❓</button>
+                                <button onclick="sendTeacherReaction('🎉')">🎉</button>
+                                <button onclick="sendTeacherReaction('👏')">👏</button>
+                            </div>
+                        </div>
+                        <button class="meet-btn meet-btn-warning" onclick="muteAll()" title="Mute All Students">
+                            🔇 Mute All
+                        </button>
+                        <button class="meet-btn meet-btn-danger" id="toggleVideoSectionBtn" onclick="leaveMeeting()" title="Leave Meeting">
+                            ☎️ Leave
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Video Grid + Chat -->
+                <div class="meeting-body">
+                    <!-- Video Grid: teacher's tile + student tiles -->
+                    <div class="teacher-video-grid" id="teacherVideoGrid">
+                        <div class="video-tile-teacher local-tile-teacher">
+                            <video id="teacherLocalVideo" autoplay playsinline muted></video>
+                            <div class="video-label-teacher">
+                                <span class="video-name-teacher" id="teacherVideoName">Teacher (You)</span>
+                                <span class="host-badge-label">HOST</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Chat Sidebar -->
+                    <div class="meeting-chat-panel">
+                        <div class="meeting-chat-title">
+                            💬 Chat
+                            <span class="chat-unread-badge hidden" id="chatBadge">0</span>
+                        </div>
+                        <div class="meeting-chat-feed" id="teacherChatMessages"></div>
+                        <div class="meeting-chat-compose">
+                            <input type="text" id="teacherChatInput" placeholder="Message class..." class="meeting-chat-field">
+                            <button onclick="sendTeacherChatMessage()" class="btn btn-accent" style="padding:8px 14px;font-size:13px;white-space:nowrap">Send</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
                 <!-- Annotation Bar -->
                 <div class="annotation-bar" id="annotationBar">
                     <div class="annotation-input-row">
