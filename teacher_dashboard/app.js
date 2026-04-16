@@ -320,9 +320,17 @@ async function connectTeacherToLiveKit(url, token) {
                 showScreenShareFullscreen(identity, stream);
             }
         } else if (track.kind === Track.Kind.Audio) {
+            // Remove any existing audio element for this participant
+            const existing = document.getElementById(`audio-${identity}`);
+            if (existing) existing.remove();
+
             const audioEl = track.attach();
             audioEl.id = `audio-${identity}`;
+            audioEl.autoplay = true;
+            audioEl.setAttribute('playsinline', '');
             document.body.appendChild(audioEl);
+            // Try to play immediately; if blocked, startAudio() on Join Meeting will unlock it
+            audioEl.play().catch(() => {});
         }
     });
 
@@ -1379,6 +1387,23 @@ function init() {
         // Reset unread count
         state.unreadCount = 0;
         if (el.chatBadge) el.chatBadge.classList.add('hidden');
+
+        // KEY FIX: Unlock audio playback (browsers block autoplay until user gesture)
+        if (state.livekitRoom) {
+            state.livekitRoom.startAudio().catch(e => console.warn('[Audio] startAudio:', e));
+        }
+
+        // Re-assign local video srcObject — browser may need this after element becomes visible
+        if (el.teacherLocalVideo && state.localStream) {
+            el.teacherLocalVideo.srcObject = state.localStream;
+            el.teacherLocalVideo.play().catch(() => {});
+        }
+
+        // Explicitly play any already-attached student audio elements
+        document.querySelectorAll('[id^="audio-"]').forEach(a => {
+            a.play().catch(() => {});
+        });
+
         showAlert('Joined meeting as host 🎤', 'success');
     });
 
