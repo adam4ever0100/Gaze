@@ -58,7 +58,9 @@ const state = {
     // Screen share tracking
     screenSharePeerSid: null,
     // Students allowed to screen share (tracked client-side for UI)
-    shareAllowed: new Set()
+    shareAllowed: new Set(),
+    // Students with raised hands
+    raisedHands: new Set()
 };
 
 // ============================================================
@@ -199,6 +201,23 @@ function connectSocket() {
     // Chat
     state.socket.on('chat-message', handleTeacherChatMessage);
 
+    // Hand raise / lower
+    state.socket.on('hand-raised', (data) => {
+        state.raisedHands.add(data.sid);
+        showAlert(`✋ ${data.name} raised their hand`, 'info');
+        updateStudentsTable(state.cachedStudents);
+    });
+    state.socket.on('hand-lowered', (data) => {
+        state.raisedHands.delete(data.sid);
+        updateStudentsTable(state.cachedStudents);
+    });
+
+    // Kick confirmation
+    state.socket.on('student-kicked', (data) => {
+        showAlert(`🚪 ${data.name} was removed from the classroom`, 'warning');
+        state.raisedHands.delete(data.sid);
+    });
+
     // Screen sharing
     state.socket.on('screen-share-started', (data) => {
         console.log('[ScreenShare] Started from:', data.name);
@@ -249,6 +268,7 @@ function createRoom() {
 
 async function handleRoomCreated(data) {
     state.roomCode = data.room_code;
+    state.sessionId = data.session_id;   // save for export
     state.authenticated = true;
 
     showView('dashboard');
@@ -413,11 +433,28 @@ async function connectTeacherToLiveKit(url, token) {
 
 function handleStudentJoined(data) {
     showAlert(`${data.name} joined the classroom`, 'success');
+    // Remove any ghost entry with the same name OR same SID (handles reconnects)
+    state.cachedStudents = state.cachedStudents.filter(
+        s => s.name !== data.name && s.sid !== data.sid
+    );
+    // Add a placeholder — full data arrives via next score-update broadcast
+    state.cachedStudents.push({
+        name: data.name,
+        sid: data.sid,
+        score: 0,
+        status: 'Connecting',
+        active: true,
+        last_update: Date.now() / 1000
+    });
+    updateStudentsTable(state.cachedStudents);
 }
 
 function handlePeerLeft(data) {
     showAlert(`${data.name} left the class`, 'warning');
     removePeer(data.sid);
+    // Immediately remove from cached list so no ghost stays in the table
+    state.cachedStudents = state.cachedStudents.filter(s => s.sid !== data.sid);
+    updateStudentsTable(state.cachedStudents);
 }
 
 function endSession() {
@@ -517,10 +554,12 @@ function updateStudentsTable(students) {
         const networkIcon = networkQuality === 'good' ? '🟢' :
             networkQuality === 'fair' ? '🟡' :
                 networkQuality === 'poor' ? '🔴' : '⚪';
+        const hasHand = state.raisedHands.has(s.sid);
+        const nameSafe = escapeHtml(s.name);
 
         return `
-            <tr>
-                <td><span class="student-name">${escapeHtml(s.name)}</span></td>
+            <tr class="${hasHand ? 'hand-raised-row' : ''}">
+                <td><span class="student-name">${nameSafe}</span></td>
                 <td>
                     <div class="score-bar-wrapper">
                         <div class="score-bar" style="width: ${scorePercent}%;
@@ -533,10 +572,23 @@ function updateStudentsTable(students) {
                 <td title="Network: ${networkQuality}">${networkIcon}</td>
                 <td><span class="activity-dot ${activityDot}"></span></td>
                 <td>
+                    ${hasHand
+                        ? `<button class="btn-hand-badge" onclick="acknowledgeHand('${s.sid}')" title="Lower hand">✋</button>`
+                        : '<span style="color:var(--text-muted);font-size:13px">\u2014</span>'}
+                </td>
+                <td>
                     <button class="btn-share-toggle ${state.shareAllowed.has(s.sid) ? 'active' : ''}" 
                             onclick="toggleSharePermission('${s.sid}')" 
                             title="${state.shareAllowed.has(s.sid) ? 'Revoke screen share' : 'Allow screen share'}">
                         📺
+                    </button>
+                </td>
+                <td class="action-cell">
+                    <button class="btn-action btn-nudge" onclick="nudgeStudent('${s.sid}','${nameSafe}')" title="Send attention reminder">
+                        👆 Nudge
+                    </button>
+                    <button class="btn-action btn-kick" onclick="kickStudent('${s.sid}','${nameSafe}')" title="Remove from classroom">
+                        🚪 Kick
                     </button>
                 </td>
             </tr>
@@ -906,16 +958,21 @@ function renderTimelineTab(data) {
 
 function exportCurrentSession() {
     if (!state.roomCode) return;
-    fetch(`${TEACHER_BASE}/sessions/1/export`)
+    if (!state.sessionId) {
+        showAlert('Session ID not available yet — please try again in a moment.', 'warning');
+        return;
+    }
+    fetch(`${TEACHER_BASE}/sessions/${state.sessionId}/export`)
         .then(r => r.blob())
         .then(blob => {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `session_${state.roomCode}.csv`;
+            a.download = `gaze_session_${state.roomCode}_${new Date().toISOString().slice(0,10)}.csv`;
             a.click();
             URL.revokeObjectURL(url);
-        });
+        })
+        .catch(err => showAlert('Export failed: ' + err.message, 'error'));
 }
 
 // ============================================================
@@ -1005,7 +1062,87 @@ function muteAll() {
 }
 
 // ============================================================
-// Screen Sharing
+// Room Link & QR Code
+// ============================================================
+
+function copyRoomLink() {
+    if (!state.roomCode) return;
+    const url = `${window.location.origin}/?room=${state.roomCode}`;
+    navigator.clipboard.writeText(url).then(() => {
+        showAlert('🔗 Invite link copied to clipboard!', 'success');
+    }).catch(() => {
+        // Fallback for environments where clipboard isn't available
+        const ta = document.createElement('textarea');
+        ta.value = url;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showAlert('🔗 Invite link copied!', 'success');
+    });
+}
+
+function showQRCode() {
+    if (!state.roomCode) return;
+    const url = `${window.location.origin}/?room=${state.roomCode}`;
+    const overlay = document.getElementById('qrOverlay');
+    const canvas  = document.getElementById('qrCanvas');
+    const linkEl  = document.getElementById('qrLinkText');
+
+    if (!overlay || !canvas) return;
+    overlay.classList.remove('hidden');
+    linkEl.textContent = url;
+
+    // Render QR code using qrcode.js
+    if (typeof QRCode !== 'undefined') {
+        QRCode.toCanvas(canvas, url, { width: 240, margin: 2,
+            color: { dark: '#1a1a2e', light: '#f8f9fa' } }, (err) => {
+            if (err) console.error('QR error:', err);
+        });
+    } else {
+        // Fallback: show URL in text if library isn't loaded
+        canvas.getContext('2d').fillText('QR library loading…', 10, 20);
+    }
+}
+
+function hideQRCode() {
+    const overlay = document.getElementById('qrOverlay');
+    if (overlay) overlay.classList.add('hidden');
+}
+
+// ============================================================
+// Kick & Nudge Students
+// ============================================================
+
+function kickStudent(sid, name) {
+    if (!state.socket) return;
+    if (!confirm(`Remove "${name}" from the classroom? They will be notified.`)) return;
+    state.socket.emit('kick-student', { target_sid: sid });
+    // Also remove from local state immediately
+    state.cachedStudents = state.cachedStudents.filter(s => s.sid !== sid);
+    state.raisedHands.delete(sid);
+    updateStudentsTable(state.cachedStudents);
+}
+
+function nudgeStudent(sid, name) {
+    if (!state.socket) return;
+    state.socket.emit('nudge-student', {
+        target_sid: sid,
+        message: `👋 ${state.teacherName || 'Your teacher'} is asking you to pay attention.`
+    });
+    showAlert(`👆 Attention reminder sent to ${name}`, 'info');
+}
+
+function acknowledgeHand(sid) {
+    if (!state.socket) return;
+    state.socket.emit('hand-lower', { target_sid: sid });
+    state.raisedHands.delete(sid);
+    updateStudentsTable(state.cachedStudents);
+}
+
+
 // ============================================================
 
 async function toggleTeacherScreenShare() {

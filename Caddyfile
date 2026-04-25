@@ -7,6 +7,11 @@ gaze-classroom.duckdns.org {
         reverse_proxy backend:5002
     }
 
+    # Teacher Dashboard — redirect bare /teacher to /teacher/
+    handle /teacher {
+        redir * /teacher/ 301
+    }
+
     # Teacher Dashboard — everything under /teacher/
     handle /teacher/* {
         uri strip_prefix /teacher

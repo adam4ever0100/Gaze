@@ -116,8 +116,27 @@ def end_session(session_id):
 # ============================================================
 
 def add_student(session_id, name):
-    """Add a student to a session and return the student ID."""
+    """Add a student to a session, or re-activate them if they're reconnecting.
+
+    If a student with the same name already exists for this session (left_at set),
+    we reuse their record so the attendance report stays clean.
+    """
     with get_db() as conn:
+        # Check for a previous record of the same student (name match)
+        existing = conn.execute(
+            "SELECT id FROM students WHERE session_id = ? AND name = ? ORDER BY joined_at DESC LIMIT 1",
+            (session_id, name)
+        ).fetchone()
+
+        if existing:
+            # Re-activate: clear left_at and update joined_at to now
+            conn.execute(
+                "UPDATE students SET joined_at = ?, left_at = NULL WHERE id = ?",
+                (time.time(), existing['id'])
+            )
+            return existing['id']
+
+        # New student
         cursor = conn.execute(
             "INSERT INTO students (name, session_id, joined_at) VALUES (?, ?, ?)",
             (name, session_id, time.time())
@@ -549,8 +568,122 @@ def get_student_timeline(student_id, limit=300):
 
 
 def export_session_csv(session_id):
-    """Export session data as CSV string."""
+    """Export comprehensive session data as a multi-section CSV."""
     with get_db() as conn:
+        session = conn.execute(
+            "SELECT * FROM sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        if not session:
+            return "Session not found\n"
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        # ── SECTION 1: Session Overview ─────────────────────────
+        started = datetime.fromtimestamp(session['started_at'])
+        ended_ts = session['ended_at']
+        ended    = datetime.fromtimestamp(ended_ts) if ended_ts else None
+        duration_s   = (ended_ts or time.time()) - session['started_at']
+
+        overall = conn.execute(
+            """SELECT AVG(attention_score) as avg,
+                      MIN(attention_score) as mn,
+                      MAX(attention_score) as mx,
+                      COUNT(*) as cnt
+               FROM attention_records WHERE session_id = ?""",
+            (session_id,)
+        ).fetchone()
+
+        students_all = conn.execute(
+            "SELECT * FROM students WHERE session_id = ? ORDER BY joined_at ASC",
+            (session_id,)
+        ).fetchall()
+
+        writer.writerow(["=== SESSION OVERVIEW ==="])
+        writer.writerow(["Session ID",      session_id])
+        writer.writerow(["Room Code",       session['room_id']])
+        writer.writerow(["Teacher",         session['teacher_name']])
+        writer.writerow(["Date",            started.strftime('%Y-%m-%d')])
+        writer.writerow(["Started At",      started.strftime('%H:%M:%S')])
+        writer.writerow(["Ended At",        ended.strftime('%H:%M:%S') if ended else "Still active"])
+        writer.writerow(["Duration",        _format_duration(duration_s)])
+        writer.writerow(["Total Students",  len(students_all)])
+        writer.writerow(["Overall Avg Attention %", f"{round((overall['avg'] or 0) * 100, 1)}%"])
+        writer.writerow(["Overall Min Attention %", f"{round((overall['mn']  or 0) * 100, 1)}%"])
+        writer.writerow(["Overall Max Attention %", f"{round((overall['mx']  or 0) * 100, 1)}%"])
+        writer.writerow(["Total Attention Records", overall['cnt']])
+        writer.writerow([])
+
+        # ── SECTION 2: Per-Student Summary ──────────────────────
+        writer.writerow(["=== STUDENT ATTENDANCE & PERFORMANCE SUMMARY ==="])
+        writer.writerow([
+            "Student Name", "Joined At", "Left At", "Time in Class",
+            "Avg Attention %", "Min Attention %", "Max Attention %",
+            "Focused %", "Partially Attentive %", "Distracted %",
+            "Total Records"
+        ])
+
+        session_end = ended_ts or time.time()
+        for s in students_all:
+            left_ts  = s['left_at'] or session_end
+            duration = left_ts - s['joined_at']
+
+            stats = conn.execute(
+                """SELECT
+                       AVG(attention_score) as avg_s,
+                       MIN(attention_score) as min_s,
+                       MAX(attention_score) as max_s,
+                       COUNT(*) as total,
+                       SUM(CASE WHEN status='Focused'              THEN 1 ELSE 0 END) as focused,
+                       SUM(CASE WHEN status='Partially Attentive'  THEN 1 ELSE 0 END) as partial,
+                       SUM(CASE WHEN status='Distracted'           THEN 1 ELSE 0 END) as distracted
+                   FROM attention_records WHERE student_id = ?""",
+                (s['id'],)
+            ).fetchone()
+
+            total = stats['total'] or 1
+            writer.writerow([
+                s['name'],
+                datetime.fromtimestamp(s['joined_at']).strftime('%H:%M:%S'),
+                datetime.fromtimestamp(left_ts).strftime('%H:%M:%S'),
+                _format_duration(duration),
+                f"{round((stats['avg_s'] or 0) * 100, 1)}%",
+                f"{round((stats['min_s'] or 0) * 100, 1)}%",
+                f"{round((stats['max_s'] or 0) * 100, 1)}%",
+                f"{round(stats['focused']   / total * 100, 1)}%",
+                f"{round(stats['partial']   / total * 100, 1)}%",
+                f"{round(stats['distracted']/ total * 100, 1)}%",
+                stats['total'] or 0
+            ])
+        writer.writerow([])
+
+        # ── SECTION 3: Teacher Annotations ──────────────────────
+        annotations = conn.execute(
+            "SELECT * FROM annotations WHERE session_id = ? ORDER BY timestamp ASC",
+            (session_id,)
+        ).fetchall()
+
+        if annotations:
+            writer.writerow(["=== TEACHER ANNOTATIONS ==="])
+            writer.writerow(["Time", "Type", "Note", "Class Avg at Time"])
+            for ann in annotations:
+                dt = datetime.fromtimestamp(ann['timestamp'])
+                writer.writerow([
+                    dt.strftime('%H:%M:%S'),
+                    ann['annotation_type'].capitalize(),
+                    ann['text'],
+                    f"{round(ann['class_avg_at_time'] * 100, 1)}%"
+                ])
+            writer.writerow([])
+
+        # ── SECTION 4: Detailed Attention Timeline ───────────────
+        writer.writerow(["=== DETAILED ATTENTION TIMELINE ==="])
+        writer.writerow([
+            "Time", "Student Name",
+            "Attention %", "Status",
+            "Gaze %", "Head Pose %", "Eye Openness %"
+        ])
+
         records = conn.execute(
             """SELECT s.name as student_name,
                       a.attention_score, a.status,
@@ -563,25 +696,16 @@ def export_session_csv(session_id):
             (session_id,)
         ).fetchall()
 
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow([
-            'Student Name', 'Attention Score', 'Status',
-            'Gaze Score', 'Head Pose Score', 'Eye Openness',
-            'Timestamp', 'Time'
-        ])
-
         for r in records:
             dt = datetime.fromtimestamp(r['timestamp'])
             writer.writerow([
+                dt.strftime('%H:%M:%S'),
                 r['student_name'],
                 round(r['attention_score'] * 100, 1),
                 r['status'],
-                round(r['gaze_score'] * 100, 1),
-                round(r['head_pose_score'] * 100, 1),
-                round(r['eye_openness'] * 100, 1),
-                r['timestamp'],
-                dt.strftime('%Y-%m-%d %H:%M:%S')
+                round(r['gaze_score']       * 100, 1),
+                round(r['head_pose_score']  * 100, 1),
+                round(r['eye_openness']     * 100, 1),
             ])
 
         return output.getvalue()

@@ -13,6 +13,7 @@
     <!-- LiveKit Client SDK (SFU) — pinned to v2 to avoid breaking changes -->
     <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
     <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 </head>
 
 <body data-theme="dark">
@@ -99,8 +100,14 @@
                     <div class="header-left">
                         <h2>Live Dashboard</h2>
                         <div class="room-badge">
-                            Room: <strong id="roomCodeDisplay">—</strong>
-                        </div>
+                        Room: <strong id="roomCodeDisplay">—</strong>
+                        <button class="btn-room-action" id="copyLinkBtn" onclick="copyRoomLink()" title="Copy invite link">
+                            🔗 Copy Link
+                        </button>
+                        <button class="btn-room-action" id="showQrBtn" onclick="showQRCode()" title="Show QR code">
+                            📷 QR Code
+                        </button>
+                    </div>
                         <div class="session-timer">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14"
                                 height="14">
@@ -322,7 +329,9 @@
                                     <th>Status</th>
                                     <th>Network</th>
                                     <th>Activity</th>
+                                    <th>Hands</th>
                                     <th>Share</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="studentsTableBody"></tbody>
@@ -383,6 +392,19 @@
             </button>
         </div>
         <video id="screenShareVideo" autoplay playsinline></video>
+    </div>
+
+    <!-- QR Code Modal -->
+    <div class="qr-overlay hidden" id="qrOverlay" onclick="hideQRCode()">
+        <div class="qr-modal" onclick="event.stopPropagation()">
+            <div class="qr-modal-header">
+                <span>📷 Room Join QR Code</span>
+                <button class="btn-close" onclick="hideQRCode()">×</button>
+            </div>
+            <canvas id="qrCanvas" style="display:block;margin:0 auto"></canvas>
+            <p id="qrLinkText" style="font-size:12px;color:var(--text-muted);text-align:center;margin-top:10px;word-break:break-all"></p>
+            <button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="copyRoomLink()">🔗 Copy Link</button>
+        </div>
     </div>
 
     <!-- Notification Sound -->

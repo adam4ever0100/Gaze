@@ -192,12 +192,45 @@ function connectSocket() {
 
     // Force mute from teacher
     state.socket.on('force-mute', () => {
+        // Step 1: mute the real MediaStream audio track (this is what actually silences the mic)
+        if (state.localStream) {
+            state.localStream.getAudioTracks().forEach(t => { t.enabled = false; });
+        }
+        // Step 2: update state and UI
+        state.micOn = false;
+        if (el.toggleMicBtn) el.toggleMicBtn.classList.add('muted');
+        // Step 3: notify LiveKit so peers see the muted indicator
         if (state.livekitRoom && state.livekitRoom.localParticipant) {
             state.livekitRoom.localParticipant.setMicrophoneEnabled(false);
-            state.micOn = false;
-            el.toggleMicBtn.classList.add('muted');
-            showReactionBubble('🔇 Teacher muted your mic');
         }
+        showReactionBubble('🔇 Teacher muted your mic');
+    });
+
+    // Kicked from room by teacher
+    state.socket.on('room-kicked', (data) => {
+        // Stop all media
+        if (state.localStream) state.localStream.getTracks().forEach(t => t.stop());
+        if (state.livekitRoom) state.livekitRoom.disconnect();
+
+        // Show full-screen message then redirect
+        document.body.innerHTML = `
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+                        height:100vh;background:#070711;color:#f0f0ff;font-family:Inter,sans-serif;gap:16px;text-align:center;padding:24px;">
+                <div style="font-size:56px">🚪</div>
+                <h2 style="margin:0;color:#ef4444">Removed from Classroom</h2>
+                <p style="color:#8888aa;max-width:360px">${data.message || 'You were removed by the teacher.'}</p>
+                <button onclick="location.reload()" style="margin-top:12px;padding:10px 24px;background:#6366f1;color:#fff;
+                    border:none;border-radius:8px;cursor:pointer;font-size:15px">Rejoin</button>
+            </div>`;
+    });
+
+    // Private attention nudge from teacher
+    state.socket.on('attention-nudge', (data) => {
+        showReactionBubble(data.message || '👋 Your teacher wants you to pay attention!');
+        // Also flash the page border briefly
+        document.body.style.outline = '4px solid #f59e0b';
+        document.body.style.outlineOffset = '-4px';
+        setTimeout(() => { document.body.style.outline = ''; }, 2500);
     });
 }
 

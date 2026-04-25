@@ -1821,3 +1821,122 @@ h5 {
 .teacher-reaction-menu button:hover {
     background: var(--bg-card-hover);
 }
+
+/* ── Room Link & QR Buttons ────────────────────────── */
+.btn-room-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    margin-left: 6px;
+}
+
+.btn-room-action:hover {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
+
+/* ── QR Modal ────────────────────────────────────────── */
+.qr-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--modal-bg);
+    backdrop-filter: blur(6px);
+    z-index: 9000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.qr-overlay.hidden { display: none; }
+
+.qr-modal {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    width: 300px;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.4);
+}
+
+.qr-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 18px;
+    color: var(--text-primary);
+}
+
+/* ── Hand Raise Row ──────────────────────────────────── */
+.hand-raised-row {
+    background: linear-gradient(to right,
+        rgba(245, 158, 11, 0.08), transparent) !important;
+    animation: hand-pulse 2s ease-in-out infinite;
+}
+
+@keyframes hand-pulse {
+    0%, 100% { box-shadow: inset 3px 0 0 rgba(245,158,11,0.7); }
+    50%       { box-shadow: inset 3px 0 0 rgba(245,158,11,0.2); }
+}
+
+.btn-hand-badge {
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid rgba(245, 158, 11, 0.4);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.btn-hand-badge:hover { background: rgba(245, 158, 11, 0.3); }
+
+/* ── Student Action Buttons ──────────────────────────── */
+.action-cell { white-space: nowrap; }
+
+.btn-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.15s;
+    margin: 1px;
+}
+
+.btn-nudge {
+    background: rgba(99, 102, 241, 0.12);
+    color: #818cf8;
+    border-color: rgba(99, 102, 241, 0.25);
+}
+
+.btn-nudge:hover {
+    background: rgba(99, 102, 241, 0.25);
+    color: #fff;
+}
+
+.btn-kick {
+    background: rgba(239, 68, 68, 0.1);
+    color: #f87171;
+    border-color: rgba(239, 68, 68, 0.25);
+}
+
+.btn-kick:hover {
+    background: rgba(239, 68, 68, 0.25);
+    color: #fff;
+}

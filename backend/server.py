@@ -222,6 +222,7 @@ def handle_create_room(data):
 
     emit('room-created', {
         'room_code': room_code,
+        'session_id': session_id,
         'ice_servers': ICE_SERVERS
     })
 
@@ -361,6 +362,50 @@ def handle_mute_all(data=None):
 
     emit('force-mute', {}, room=room_code, skip_sid=request.sid)
     print(f"Teacher muted all in room {room_code}")
+
+
+@socketio.on('kick-student')
+@require_room_member
+def handle_kick_student(data):
+    """Teacher removes a student from the room."""
+    room_code = sid_to_room.get(request.sid)
+    room = rooms.get(room_code)
+    if not room or request.sid != room.get('teacher_sid'):
+        emit('error', {'message': 'Only the teacher can kick students'})
+        return
+
+    target_sid = data.get('target_sid')
+    if not target_sid or target_sid not in room['students']:
+        return
+
+    student = room['students'][target_sid]
+    student_name = student['name']
+
+    # Notify the kicked student
+    emit('room-kicked', {'message': 'You were removed from the classroom by the teacher.'}, to=target_sid)
+
+    # Remove from room state (disconnect handler will clean up the rest)
+    _handle_disconnect(target_sid)
+
+    # Notify the teacher
+    emit('student-kicked', {'name': student_name, 'sid': target_sid}, to=request.sid)
+    print(f"Teacher kicked {student_name} from room {room_code}")
+
+
+@socketio.on('nudge-student')
+@require_room_member
+def handle_nudge_student(data):
+    """Teacher sends a private attention reminder to one student."""
+    room_code = sid_to_room.get(request.sid)
+    room = rooms.get(room_code)
+    if not room or request.sid != room.get('teacher_sid'):
+        return
+
+    target_sid = data.get('target_sid')
+    message = data.get('message', '👋 Your teacher is asking you to pay attention.')
+    if target_sid and target_sid in room['students']:
+        emit('attention-nudge', {'message': message}, to=target_sid)
+        print(f"Teacher nudged student {target_sid} in room {room_code}")
 
 
 # ============================================================
