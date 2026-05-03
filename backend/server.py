@@ -827,6 +827,32 @@ def _get_dashboard_data(room_code):
     }
 
 
+@app.route('/config', methods=['GET'])
+def get_config():
+    """Return frontend configuration, including the student app URL."""
+    from config import STUDENT_APP_PORT
+
+    # In production (behind nginx/Caddy), the student app is on the same origin
+    # at path /.  Detect this by checking the X-Forwarded-Proto header or
+    # whether the request came in on the BACKEND_PORT.
+    forwarded_proto = request.headers.get('X-Forwarded-Proto', '')
+    is_behind_proxy  = bool(forwarded_proto)
+
+    if is_behind_proxy:
+        # Nginx/Caddy is in front — student app is at the same origin root
+        student_app_url = f"{request.scheme}://{request.host}"
+    else:
+        # Local dev — student app runs on a different port
+        host_name = request.host.split(':')[0]  # strip port
+        proto = 'https' if request.is_secure else 'http'
+        student_app_url = f"{proto}://{host_name}:{STUDENT_APP_PORT}"
+
+    return jsonify({
+        'success': True,
+        'student_app_url': student_app_url
+    })
+
+
 @app.route('/dashboard', methods=['GET'])
 def get_dashboard():
     room_code = request.args.get('room_code') or request.args.get('meeting_id', '')

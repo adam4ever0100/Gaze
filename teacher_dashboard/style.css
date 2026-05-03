@@ -1855,6 +1855,7 @@ h5 {
     display: flex;
     align-items: center;
     justify-content: center;
+    animation: fadeIn 0.2s ease;
 }
 
 .qr-overlay.hidden { display: none; }
@@ -1864,8 +1865,14 @@ h5 {
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 24px;
-    width: 300px;
-    box-shadow: 0 24px 80px rgba(0,0,0,0.4);
+    width: 320px;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+    animation: scaleIn 0.2s ease;
+}
+
+@keyframes scaleIn {
+    from { transform: scale(0.92); opacity: 0; }
+    to   { transform: scale(1);    opacity: 1; }
 }
 
 .qr-modal-header {
@@ -1876,6 +1883,16 @@ h5 {
     font-size: 14px;
     margin-bottom: 18px;
     color: var(--text-primary);
+}
+
+/* White wrapper so black QR is always readable regardless of theme */
+#qrCanvas {
+    display: block;
+    margin: 0 auto;
+    border-radius: 8px;
+    background: #ffffff;
+    padding: 8px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
 }
 
 /* ── Hand Raise Row ──────────────────────────────────── */

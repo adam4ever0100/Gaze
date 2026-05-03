@@ -160,6 +160,7 @@ SECURITY_HEADERS = {
         "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.socket.io blob:; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data: blob:; "
         "connect-src 'self' "
         "https://*.livekit.cloud wss://*.livekit.cloud "
         "https://*.duckdns.org wss://*.duckdns.org "

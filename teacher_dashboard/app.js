@@ -60,7 +60,9 @@ const state = {
     // Students allowed to screen share (tracked client-side for UI)
     shareAllowed: new Set(),
     // Students with raised hands
-    raisedHands: new Set()
+    raisedHands: new Set(),
+    // Cached student app URL for QR/invite link
+    _studentAppUrl: null
 };
 
 // ============================================================
@@ -282,6 +284,9 @@ async function handleRoomCreated(data) {
 
     // Request notification permission
     requestNotificationPermission();
+
+    // Pre-fetch student app URL so QR/link is instant on first click
+    getStudentAppUrl();
 
     // Start camera & request LiveKit token (teacher is always in the room)
     try {
@@ -1065,9 +1070,28 @@ function muteAll() {
 // Room Link & QR Code
 // ============================================================
 
-function copyRoomLink() {
+
+async function getStudentAppUrl() {
+    if (state._studentAppUrl) return state._studentAppUrl;
+    try {
+        const res = await fetch(`${TEACHER_BASE}/config`);
+        if (res.ok) {
+            const data = await res.json();
+            if (data.student_app_url) {
+                state._studentAppUrl = data.student_app_url;
+                return state._studentAppUrl;
+            }
+        }
+    } catch (e) { /* fall through to default */ }
+    // Fallback: same origin root (works in production behind nginx)
+    state._studentAppUrl = window.location.origin;
+    return state._studentAppUrl;
+}
+
+async function copyRoomLink() {
     if (!state.roomCode) return;
-    const url = `${window.location.origin}/?room=${state.roomCode}`;
+    const base = await getStudentAppUrl();
+    const url = `${base}/?room=${state.roomCode}`;
     navigator.clipboard.writeText(url).then(() => {
         showAlert('🔗 Invite link copied to clipboard!', 'success');
     }).catch(() => {
@@ -1084,27 +1108,63 @@ function copyRoomLink() {
     });
 }
 
-function showQRCode() {
+async function showQRCode() {
     if (!state.roomCode) return;
-    const url = `${window.location.origin}/?room=${state.roomCode}`;
+    const base = await getStudentAppUrl();
+    const url = `${base}/?room=${state.roomCode}`;
     const overlay = document.getElementById('qrOverlay');
     const canvas  = document.getElementById('qrCanvas');
     const linkEl  = document.getElementById('qrLinkText');
 
     if (!overlay || !canvas) return;
     overlay.classList.remove('hidden');
-    linkEl.textContent = url;
+    if (linkEl) linkEl.textContent = url;
 
-    // Render QR code using qrcode.js
-    if (typeof QRCode !== 'undefined') {
-        QRCode.toCanvas(canvas, url, { width: 240, margin: 2,
-            color: { dark: '#1a1a2e', light: '#f8f9fa' } }, (err) => {
-            if (err) console.error('QR error:', err);
-        });
-    } else {
-        // Fallback: show URL in text if library isn't loaded
-        canvas.getContext('2d').fillText('QR library loading…', 10, 20);
-    }
+    // Wait one frame so overlay is visible and canvas has layout
+    requestAnimationFrame(() => {
+        if (typeof QRCode !== 'undefined') {
+            // Reset canvas size before drawing to avoid stale content
+            const size = 256;
+            canvas.width  = size;
+            canvas.height = size;
+
+            QRCode.toCanvas(canvas, url, {
+                width: size,
+                margin: 2,
+                // Always high-contrast black/white so it scans on any theme
+                color: { dark: '#000000', light: '#ffffff' }
+            }, (err) => {
+                if (err) {
+                    console.error('QR render error:', err);
+                    // Fallback: draw URL text
+                    const ctx = canvas.getContext('2d');
+                    ctx.clearRect(0, 0, size, size);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, size, size);
+                    ctx.fillStyle = '#000000';
+                    ctx.font = '11px monospace';
+                    ctx.textAlign = 'center';
+                    // Word-wrap URL
+                    const words = url.match(/.{1,30}/g) || [url];
+                    words.forEach((line, i) => ctx.fillText(line, size / 2, 40 + i * 16));
+                }
+            });
+        } else {
+            // QRCode library failed to load — show a styled fallback
+            const ctx = canvas.getContext('2d');
+            const size = 256;
+            canvas.width = size;
+            canvas.height = size;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, size, size);
+            ctx.fillStyle = '#1a1a2e';
+            ctx.font = 'bold 13px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('QR library unavailable', size / 2, size / 2 - 8);
+            ctx.font = '11px monospace';
+            ctx.fillText('Use the link below', size / 2, size / 2 + 12);
+        }
+    });
 }
 
 function hideQRCode() {
