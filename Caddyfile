@@ -18,6 +18,19 @@ gaze-classroom.duckdns.org {
         reverse_proxy backend:5002
     }
 
+    # Backend API endpoints — sessions (PDF/reports/summary), api/*, config
+    handle /sessions/* {
+        reverse_proxy backend:5002
+    }
+
+    handle /api/* {
+        reverse_proxy backend:5002
+    }
+
+    handle /config {
+        reverse_proxy backend:5002
+    }
+
     # Student App (catch-all)
     handle {
         reverse_proxy student-app:5001
