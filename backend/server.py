@@ -1026,134 +1026,273 @@ def submit_score():
 
 @app.route('/sessions/<int:session_id>/report.pdf')
 def download_pdf_report(session_id):
-    """Generate and download a PDF report for a session."""
+    """Generate and download a professional PDF report for a session."""
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.units import mm
         from reportlab.lib import colors
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
+                                        Table, TableStyle, HRFlowable)
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+        from datetime import datetime as dt
     except ImportError:
         return jsonify({'error': 'reportlab not installed'}), 500
 
-    summary = get_session_summary(session_id)
+    summary    = get_session_summary(session_id)
     if not summary:
         return jsonify({'error': 'Session not found'}), 404
 
-    attendance = get_attendance_report(session_id)
-    ai_summary = generate_ai_summary(session_id)
+    attendance  = get_attendance_report(session_id)
+    ai_summary  = generate_ai_summary(session_id)
     annotations = get_annotations(session_id)
 
-    # Build PDF in memory
-    import io
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=20*mm, bottomMargin=20*mm)
-    styles = getSampleStyleSheet()
+    import io as _io
+    import time as _time
 
-    title_style = ParagraphStyle('CustomTitle', parent=styles['Title'], fontSize=22, spaceAfter=6)
-    subtitle_style = ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=11, textColor=colors.grey)
-    heading_style = ParagraphStyle('Heading', parent=styles['Heading2'], fontSize=14, spaceBefore=16, spaceAfter=8)
-    body_style = styles['Normal']
+    # ── Helpers ─────────────────────────────────────────────
+    def fmt_ts(ts):
+        return dt.fromtimestamp(ts).strftime('%I:%M %p') if ts else '—'
+
+    def fmt_dur(secs):
+        m = int(secs // 60); s = int(secs % 60)
+        if m >= 60:
+            h = m // 60; m = m % 60
+            return f"{h}h {m}m"
+        return f"{m}m {s}s"
+
+    def grade(pct):
+        if pct >= 90: return 'A+'
+        if pct >= 80: return 'A'
+        if pct >= 70: return 'B'
+        if pct >= 60: return 'C'
+        if pct >= 50: return 'D'
+        return 'F'
+
+    def score_color(pct):
+        if pct >= 70: return colors.HexColor('#16a34a')   # green
+        if pct >= 40: return colors.HexColor('#d97706')   # amber
+        return colors.HexColor('#dc2626')                 # red
+
+    # ── Styles ───────────────────────────────────────────────
+    W, H = A4
+    margin = 18 * mm
+    col_w  = W - 2 * margin
+
+    buffer = _io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        leftMargin=margin, rightMargin=margin,
+        topMargin=margin, bottomMargin=margin
+    )
+
+    BASE   = colors.HexColor('#6366f1')   # indigo
+    LIGHT  = colors.HexColor('#ede9fe')
+    WHITE  = colors.white
+    GREY   = colors.HexColor('#6b7280')
+    DARK   = colors.HexColor('#111827')
+    ROW_A  = colors.HexColor('#f5f3ff')
+    ROW_B  = colors.white
+
+    styles = getSampleStyleSheet()
+    def sty(name, **kw):
+        return ParagraphStyle(name, parent=styles['Normal'], **kw)
+
+    title_sty    = sty('T', fontSize=24, textColor=WHITE,      leading=28, fontName='Helvetica-Bold', alignment=TA_CENTER)
+    sub_sty      = sty('S', fontSize=11, textColor=LIGHT,      leading=16, alignment=TA_CENTER)
+    h2_sty       = sty('H2', fontSize=13, textColor=DARK,      spaceBefore=10, spaceAfter=5, fontName='Helvetica-Bold')
+    body_sty     = sty('B', fontSize=9,  textColor=DARK,       leading=14)
+    small_sty    = sty('Sm', fontSize=8, textColor=GREY,       leading=12)
+    footer_sty   = sty('F', fontSize=8, textColor=GREY,        alignment=TA_CENTER)
+    center_sty   = sty('C', fontSize=9, textColor=DARK,        alignment=TA_CENTER)
+    bold_sty     = sty('Bd', fontSize=9, textColor=DARK,       fontName='Helvetica-Bold')
 
     elements = []
 
-    # Header
-    elements.append(Paragraph("Gaze — Session Report", title_style))
-    elements.append(Paragraph(
-        f"Room: {summary['room_id']} | Teacher: {summary['teacher_name']} | "
-        f"Duration: {summary.get('duration_formatted', 'N/A')}",
-        subtitle_style
-    ))
-    elements.append(Spacer(1, 10*mm))
+    # ── HEADER BANNER ────────────────────────────────────────
+    started_ts = summary.get('started_at', _time.time())
+    ended_ts   = summary.get('ended_at')
+    duration_s = (ended_ts or _time.time()) - started_ts
+    started_fmt = dt.fromtimestamp(started_ts).strftime('%A, %B %d %Y  •  %I:%M %p')
 
-    # Summary Stats
-    elements.append(Paragraph("Session Overview", heading_style))
-    stats_data = [
-        ['Metric', 'Value'],
-        ['Total Students', str(summary.get('student_count', 0))],
-        ['Class Average', f"{summary.get('class_avg', 0)}%"],
-        ['Duration', summary.get('duration_formatted', 'N/A')],
-    ]
-    if ai_summary:
-        stats_data.append(['Peak Engagement', f"{ai_summary.get('peak_engagement', 0)}% at min {ai_summary.get('peak_time_minutes', 0)}"])
-        stats_data.append(['Attention Dips', str(ai_summary.get('dip_count', 0))])
+    avg_pct = round((ai_summary.get('overall_avg', 0) if ai_summary else 0), 1)
+    if avg_pct == 0 and summary.get('students'):
+        avg_pct = round(sum(s['avg_score'] for s in summary['students']) /
+                        max(len(summary['students']), 1) * 100, 1)
 
-    stats_table = Table(stats_data, colWidths=[120, 300])
-    stats_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#6366f1')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONTSIZE', (0, 0), (-1, 0), 11),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f5f5ff')),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#ddd')),
-        ('PADDING', (0, 0), (-1, -1), 8),
+    header_data = [[
+        Paragraph("📊 Gaze — Session Report", title_sty),
+    ]]
+    sub_line = (f"Room: {summary['room_id']}  •  Teacher: {summary['teacher_name']}  •  "
+                f"{started_fmt}  •  Duration: {fmt_dur(duration_s)}")
+    header_table = Table([[Paragraph("📊 Gaze — Session Report", title_sty)],
+                          [Paragraph(sub_line, sub_sty)]],
+                         colWidths=[col_w])
+    header_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), BASE),
+        ('ROUNDEDCORNERS', [6]),
+        ('TOPPADDING',    (0, 0), (-1, -1), 14),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 14),
+        ('LEFTPADDING',   (0, 0), (-1, -1), 16),
+        ('RIGHTPADDING',  (0, 0), (-1, -1), 16),
     ]))
-    elements.append(stats_table)
-    elements.append(Spacer(1, 8*mm))
+    elements.append(header_table)
+    elements.append(Spacer(1, 6 * mm))
 
-    # Student Performance
+    # ── STATS CARDS (1 row, 4 cols) ──────────────────────────
+    n_students = summary.get('student_count', 0)
+    peak_pct   = ai_summary.get('peak_engagement', 0) if ai_summary else 0
+    dip_count  = ai_summary.get('dip_count', 0) if ai_summary else 0
+
+    def card(label, value, color=DARK):
+        return [Paragraph(f"<b><font size=20 color='#{color.hexval()[2:]}'>{value}</font></b>", center_sty),
+                Paragraph(f"<font size=8 color='#6b7280'>{label}</font>", center_sty)]
+
+    cw = col_w / 4 - 2
+    cards_table = Table([
+        [card("Students", str(n_students)),
+         card("Class Average", f"{avg_pct}%", score_color(avg_pct)),
+         card("Peak Attention", f"{peak_pct}%", score_color(peak_pct)),
+         card("Attention Dips", str(dip_count))]
+    ], colWidths=[cw, cw, cw, cw], rowHeights=[40])
+    cards_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), ROW_A),
+        ('BOX',        (0, 0), (-1, -1), 0.5, colors.HexColor('#d1d5db')),
+        ('INNERGRID',  (0, 0), (-1, -1), 0.5, colors.HexColor('#d1d5db')),
+        ('VALIGN',     (0, 0), (-1, -1), 'MIDDLE'),
+        ('ROUNDEDCORNERS', [4]),
+        ('TOPPADDING',    (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ]))
+    elements.append(cards_table)
+    elements.append(Spacer(1, 6 * mm))
+
+    # ── STUDENT PERFORMANCE TABLE ─────────────────────────────
+    elements.append(Paragraph("Student Performance", h2_sty))
+    elements.append(HRFlowable(width=col_w, thickness=1, color=BASE, spaceAfter=4))
+
     if attendance and attendance.get('students'):
-        elements.append(Paragraph("Student Performance", heading_style))
-        student_data = [['Student', 'Duration', 'Avg Attention', 'Present at End']]
+        hdr = ['Student Name', 'Time in Session', 'Avg Attention', 'Grade',
+               'Focused', 'Partial', 'Distracted', 'Status']
+        rows = [hdr]
+
         for s in attendance['students']:
-            student_data.append([
+            s_avg = s.get('avg_attention', 0)
+            # Get focused/partial/distracted from summary students list
+            s_match = next((x for x in summary.get('students', []) if x['name'] == s['name']), None)
+            rows.append([
                 s['name'],
-                s['duration_formatted'],
-                f"{s['avg_attention']}%",
-                '✓' if s['was_present_at_end'] else '✗'
+                s.get('duration_formatted', '—'),
+                f"{s_avg}%",
+                grade(s_avg),
+                '—', '—', '—',   # placeholder — we don't have breakdown in attendance
+                '✓ Present' if s.get('was_present_at_end') else '✗ Left early'
             ])
 
-        student_table = Table(student_data, colWidths=[140, 100, 100, 80])
-        student_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#6366f1')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f5f5ff')),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#ddd')),
-            ('PADDING', (0, 0), (-1, -1), 6),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.HexColor('#f5f5ff'), colors.white]),
-        ]))
-        elements.append(student_table)
-        elements.append(Spacer(1, 8*mm))
+        cws = [120, 70, 65, 40, 45, 45, 55, 65]
+        st = Table(rows, colWidths=cws)
+        ts = TableStyle([
+            ('BACKGROUND',  (0, 0), (-1, 0), BASE),
+            ('TEXTCOLOR',   (0, 0), (-1, 0), WHITE),
+            ('FONTNAME',    (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE',    (0, 0), (-1, -1), 8),
+            ('ALIGN',       (0, 0), (-1, -1), 'CENTER'),
+            ('ALIGN',       (0, 0), (0, -1),  'LEFT'),
+            ('VALIGN',      (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID',        (0, 0), (-1, -1), 0.4, colors.HexColor('#d1d5db')),
+            ('TOPPADDING',  (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING',(0, 0), (-1, -1), 5),
+        ])
+        # Alternating row colours
+        for i, row in enumerate(rows[1:], 1):
+            bg = ROW_A if i % 2 == 0 else ROW_B
+            ts.add('BACKGROUND', (0, i), (-1, i), bg)
+            # Colour the grade cell
+            s_avg = attendance['students'][i-1].get('avg_attention', 0)
+            ts.add('TEXTCOLOR', (3, i), (3, i), score_color(s_avg))
+            ts.add('FONTNAME',  (3, i), (3, i), 'Helvetica-Bold')
+        st.setStyle(ts)
+        elements.append(st)
+    else:
+        elements.append(Paragraph("No student data available.", body_sty))
 
-    # AI Summary
+    elements.append(Spacer(1, 6 * mm))
+
+    # ── AI / RULE-BASED SUMMARY ───────────────────────────────
     if ai_summary:
-        elements.append(Paragraph("Session Analysis", heading_style))
-        badge = " (AI-Powered)" if ai_summary.get('ai_powered') else " (Rule-Based)"
-        elements.append(Paragraph(ai_summary.get('summary', '') + badge, body_style))
-        elements.append(Spacer(1, 4*mm))
+        powered = "AI-Powered Analysis" if ai_summary.get('ai_powered') else "Session Analysis"
+        elements.append(Paragraph(powered, h2_sty))
+        elements.append(HRFlowable(width=col_w, thickness=1, color=BASE, spaceAfter=4))
 
-        if ai_summary.get('recommendations'):
-            elements.append(Paragraph("Recommendations:", ParagraphStyle('Bold', parent=body_style, fontName='Helvetica-Bold')))
-            for rec in ai_summary['recommendations']:
-                elements.append(Paragraph(f"• {rec}", body_style))
+        summary_text = ai_summary.get('summary', '')
+        if summary_text:
+            elements.append(Paragraph(summary_text, body_sty))
+            elements.append(Spacer(1, 4 * mm))
 
-    # Annotations
+        highlights = ai_summary.get('highlights', [])
+        if highlights:
+            elements.append(Paragraph("<b>Key Observations:</b>", body_sty))
+            for h in highlights[:6]:
+                elements.append(Paragraph(f"  • {h}", body_sty))
+            elements.append(Spacer(1, 3 * mm))
+
+        recs = ai_summary.get('recommendations', [])
+        if recs:
+            elements.append(Paragraph("<b>Recommendations:</b>", body_sty))
+            for r in recs:
+                elements.append(Paragraph(f"  • {r}", body_sty))
+        elements.append(Spacer(1, 5 * mm))
+
+    # ── TEACHER ANNOTATIONS ───────────────────────────────────
     if annotations:
-        elements.append(Spacer(1, 6*mm))
-        elements.append(Paragraph("Teacher Annotations", heading_style))
-        for ann in annotations:
-            elements.append(Paragraph(
-                f"[{ann.get('type', 'note')}] {ann.get('text', '')} — {ann.get('teacher_name', '')}",
-                body_style
-            ))
+        elements.append(Paragraph("Teacher Annotations", h2_sty))
+        elements.append(HRFlowable(width=col_w, thickness=1, color=BASE, spaceAfter=4))
 
-    # Footer
-    elements.append(Spacer(1, 10*mm))
+        ann_hdr = ['Time', 'Type', 'Note', 'Class Attention']
+        ann_rows = [ann_hdr]
+        for ann in annotations:
+            ann_rows.append([
+                dt.fromtimestamp(ann['timestamp']).strftime('%I:%M %p'),
+                ann.get('annotation_type', 'note').capitalize(),
+                ann.get('text', ''),
+                f"{round(ann.get('class_avg_at_time', 0) * 100, 1)}%"
+            ])
+
+        ann_table = Table(ann_rows, colWidths=[55, 55, 320, 75])
+        ann_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), BASE),
+            ('TEXTCOLOR',  (0, 0), (-1, 0), WHITE),
+            ('FONTNAME',   (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE',   (0, 0), (-1, -1), 8),
+            ('GRID',       (0, 0), (-1, -1), 0.4, colors.HexColor('#d1d5db')),
+            ('VALIGN',     (0, 0), (-1, -1), 'TOP'),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING',(0, 0), (-1, -1), 5),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [ROW_A, ROW_B]),
+        ]))
+        elements.append(ann_table)
+        elements.append(Spacer(1, 5 * mm))
+
+    # ── FOOTER ────────────────────────────────────────────────
+    elements.append(HRFlowable(width=col_w, thickness=0.5, color=colors.HexColor('#d1d5db')))
+    elements.append(Spacer(1, 3 * mm))
     elements.append(Paragraph(
-        "Generated by Gaze — Real-Time Attention Monitoring System",
-        ParagraphStyle('Footer', parent=body_style, fontSize=8, textColor=colors.grey)
+        f"Generated by Gaze — Real-Time Attention Monitoring System  •  "
+        f"{dt.now().strftime('%Y-%m-%d %H:%M')}",
+        footer_sty
     ))
 
     doc.build(elements)
     buffer.seek(0)
 
+    room = summary.get('room_id', session_id)
     return send_file(
         buffer,
         mimetype='application/pdf',
         as_attachment=True,
-        download_name=f"gaze_session_{session_id}_report.pdf"
+        download_name=f"gaze_report_{room}_{dt.now().strftime('%Y%m%d')}.pdf"
     )
+
 
 
 # ============================================================
