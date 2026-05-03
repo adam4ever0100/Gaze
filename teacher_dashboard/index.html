@@ -13,7 +13,7 @@
     <!-- LiveKit Client SDK (SFU) — pinned to v2 to avoid breaking changes -->
     <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
     <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 </head>
 
 <body data-theme="dark">
@@ -401,7 +401,7 @@
                 <span>📷 Room Join QR Code</span>
                 <button class="btn-close" onclick="hideQRCode()">×</button>
             </div>
-            <canvas id="qrCanvas" style="display:block;margin:0 auto"></canvas>
+            <div id="qrCanvas" style="display:flex;align-items:center;justify-content:center;min-height:256px"></div>
             <p id="qrLinkText" style="font-size:12px;color:var(--text-muted);text-align:center;margin-top:10px;word-break:break-all"></p>
             <button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="copyRoomLink()">🔗 Copy Link</button>
         </div>

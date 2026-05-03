@@ -1113,58 +1113,34 @@ async function showQRCode() {
     const base = await getStudentAppUrl();
     const url = `${base}/?room=${state.roomCode}`;
     const overlay = document.getElementById('qrOverlay');
-    const canvas  = document.getElementById('qrCanvas');
+    const container = document.getElementById('qrCanvas');  // now a div
     const linkEl  = document.getElementById('qrLinkText');
 
-    if (!overlay || !canvas) return;
+    if (!overlay || !container) return;
     overlay.classList.remove('hidden');
     if (linkEl) linkEl.textContent = url;
 
-    // Wait one frame so overlay is visible and canvas has layout
-    requestAnimationFrame(() => {
-        if (typeof QRCode !== 'undefined') {
-            // Reset canvas size before drawing to avoid stale content
-            const size = 256;
-            canvas.width  = size;
-            canvas.height = size;
+    // Clear any previous QR code
+    container.innerHTML = '';
 
-            QRCode.toCanvas(canvas, url, {
-                width: size,
-                margin: 2,
-                // Always high-contrast black/white so it scans on any theme
-                color: { dark: '#000000', light: '#ffffff' }
-            }, (err) => {
-                if (err) {
-                    console.error('QR render error:', err);
-                    // Fallback: draw URL text
-                    const ctx = canvas.getContext('2d');
-                    ctx.clearRect(0, 0, size, size);
-                    ctx.fillStyle = '#ffffff';
-                    ctx.fillRect(0, 0, size, size);
-                    ctx.fillStyle = '#000000';
-                    ctx.font = '11px monospace';
-                    ctx.textAlign = 'center';
-                    // Word-wrap URL
-                    const words = url.match(/.{1,30}/g) || [url];
-                    words.forEach((line, i) => ctx.fillText(line, size / 2, 40 + i * 16));
-                }
-            });
-        } else {
-            // QRCode library failed to load — show a styled fallback
-            const ctx = canvas.getContext('2d');
-            const size = 256;
-            canvas.width = size;
-            canvas.height = size;
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(0, 0, size, size);
-            ctx.fillStyle = '#1a1a2e';
-            ctx.font = 'bold 13px Inter, sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText('QR library unavailable', size / 2, size / 2 - 8);
-            ctx.font = '11px monospace';
-            ctx.fillText('Use the link below', size / 2, size / 2 + 12);
-        }
-    });
+    if (typeof QRCode !== 'undefined') {
+        // qrcodejs API: new QRCode(element, options)
+        new QRCode(container, {
+            text: url,
+            width: 256,
+            height: 256,
+            colorDark: '#000000',
+            colorLight: '#ffffff',
+            correctLevel: QRCode.CorrectLevel.M
+        });
+    } else {
+        // Fallback: show text message
+        container.innerHTML = `
+            <div style="text-align:center;padding:20px;color:#333;font-family:Inter,sans-serif">
+                <div style="font-size:14px;font-weight:600;margin-bottom:8px">QR library unavailable</div>
+                <div style="font-size:12px;color:#666">Use the link below to share</div>
+            </div>`;
+    }
 }
 
 function hideQRCode() {

@@ -839,8 +839,9 @@ def get_config():
     is_behind_proxy  = bool(forwarded_proto)
 
     if is_behind_proxy:
-        # Nginx/Caddy is in front — student app is at the same origin root
-        student_app_url = f"{request.scheme}://{request.host}"
+        # Nginx/Caddy is in front — use the forwarded protocol, not request.scheme
+        # (request.scheme is always 'http' on the internal connection)
+        student_app_url = f"{forwarded_proto}://{request.host}"
     else:
         # Local dev — student app runs on a different port
         host_name = request.host.split(':')[0]  # strip port
