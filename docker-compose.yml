@@ -12,12 +12,7 @@ services:
       - BACKEND_PORT=5002
     volumes:
       - gaze_data:/app/data
-    command: >
-      python -c "
-      import eventlet; eventlet.monkey_patch();
-      from backend.server import app, socketio;
-      socketio.run(app, host='0.0.0.0', port=5002, log_output=True)
-      "
+    command: python start_backend.py
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5002/')"]
