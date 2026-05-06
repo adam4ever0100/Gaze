@@ -28,3 +28,6 @@ gunicorn>=21.0.0
 
 # LiveKit SFU
 livekit-api>=1.0.0
+
+# PDF Report Generation
+reportlab>=4.0.0

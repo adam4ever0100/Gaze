@@ -465,6 +465,31 @@ function handlePeerLeft(data) {
 function endSession() {
     if (!confirm('Are you sure you want to end this session?')) return;
 
+    // ── Auto-download CSV report before clearing state ──────────
+    if (state.sessionId) {
+        const sessionId  = state.sessionId;
+        const roomCode   = state.roomCode || 'session';
+        const dateStr    = new Date().toISOString().slice(0, 10);
+        showAlert('📥 Downloading session report...', 'info');
+        fetch(`${TEACHER_BASE}/sessions/${sessionId}/export`)
+            .then(r => {
+                if (!r.ok) throw new Error('Export failed');
+                return r.blob();
+            })
+            .then(blob => {
+                const url = URL.createObjectURL(blob);
+                const a   = document.createElement('a');
+                a.href     = url;
+                a.download = `gaze_${roomCode}_${dateStr}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                showAlert('✅ Session report saved!', 'success');
+            })
+            .catch(err => showAlert('Report download failed: ' + err.message, 'warning'));
+    }
+
     // Disconnect from LiveKit
     if (state.livekitRoom) {
         state.livekitRoom.disconnect();
@@ -1536,7 +1561,7 @@ function init() {
     el.exportBtn.addEventListener('click', exportCurrentSession);
     el.pdfReportBtn.addEventListener('click', () => {
         if (state.sessionId) {
-            window.open(`/sessions/${state.sessionId}/report.pdf`, '_blank');
+            window.open(`${TEACHER_BASE}/sessions/${state.sessionId}/report.pdf`, '_blank');
         } else {
             showAlert('No active session to generate a report for.', 'warning');
         }
