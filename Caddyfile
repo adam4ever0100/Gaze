@@ -35,10 +35,12 @@ gaze-classroom.duckdns.org {
         reverse_proxy backend:5002
     }
 
-    # LiveKit WebSocket proxy — so students can connect via wss://domain/livekit
-    handle /livekit/* {
+    # LiveKit WebSocket proxy — matches /livekit, /livekit/, /livekit/rtc etc.
+    handle /livekit* {
         uri strip_prefix /livekit
-        reverse_proxy livekit:7880
+        reverse_proxy livekit:7880 {
+            header_up Host {upstream_hostport}
+        }
     }
 
     # Student App (catch-all)
