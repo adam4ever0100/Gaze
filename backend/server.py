@@ -197,6 +197,7 @@ def handle_create_room(data):
     """Teacher creates a new room."""
     teacher_name = data.get('teacher_name', 'Teacher')
     password = data.get('password', '')
+    session_name = data.get('session_name', '').strip()  # Optional session label
 
     if password != TEACHER_PASSWORD:
         emit('error', {'message': 'Invalid teacher password'})
@@ -205,12 +206,13 @@ def handle_create_room(data):
     room_code = generate_room_code()
 
     # Create DB session
-    session_id = create_session(room_code, teacher_name)
+    session_id = create_session(room_code, teacher_name, session_name=session_name)
 
     rooms[room_code] = {
         'teacher_sid': request.sid,
         'teacher_name': teacher_name,
         'session_id': session_id,
+        'session_name': session_name,
         'students': {},
         'class_history': [],
         'created_at': time.time(),
@@ -223,10 +225,12 @@ def handle_create_room(data):
     emit('room-created', {
         'room_code': room_code,
         'session_id': session_id,
+        'session_name': session_name,
+        'started_at': rooms[room_code]['created_at'],
         'ice_servers': ICE_SERVERS
     })
 
-    print(f"Room {room_code} created by {teacher_name}")
+    print(f"Room {room_code} created by {teacher_name}" + (f" [{session_name}]" if session_name else ""))
 
 
 @socketio.on('join-room')
@@ -278,11 +282,13 @@ def handle_join_room(data):
         'is_teacher': False
     }, room=room_code, skip_sid=request.sid)
 
-    # Update teacher dashboard
+    # Update teacher dashboard — notify of new join (or late-join)
+    already_in_session = len(room['students']) > 1  # True if not the first student
     emit('student-joined', {
         'name': student_name,
         'sid': request.sid,
-        'student_count': len(room['students'])
+        'student_count': len(room['students']),
+        'is_late': already_in_session
     }, room=room_code)
 
     print(f"Student {student_name} joined room {room_code}")
@@ -634,11 +640,13 @@ def handle_attention_score(data):
     """Receive attention score from a student via WebSocket."""
     # Per-SID rate limiting
     if not check_rate_limit(request.sid):
+        emit('rate-limited', {'message': 'Sending scores too fast — please slow down'})
         return
 
     # Per-IP rate limiting
     ip = request.remote_addr or '127.0.0.1'
     if not check_ip_rate_limit(ip):
+        emit('rate-limited', {'message': 'Too many requests from your network'})
         return
 
     room_code = sid_to_room.get(request.sid)
@@ -832,25 +840,30 @@ def get_config():
     """Return frontend configuration, including the student app URL."""
     from config import STUDENT_APP_PORT
 
-    # In production (behind nginx/Caddy), the student app is on the same origin
-    # at path /.  Detect this by checking the X-Forwarded-Proto header or
-    # whether the request came in on the BACKEND_PORT.
     forwarded_proto = request.headers.get('X-Forwarded-Proto', '')
     is_behind_proxy  = bool(forwarded_proto)
 
     if is_behind_proxy:
-        # Nginx/Caddy is in front — use the forwarded protocol, not request.scheme
-        # (request.scheme is always 'http' on the internal connection)
         student_app_url = f"{forwarded_proto}://{request.host}"
     else:
-        # Local dev — student app runs on a different port
-        host_name = request.host.split(':')[0]  # strip port
+        host_name = request.host.split(':')[0]
         proto = 'https' if request.is_secure else 'http'
         student_app_url = f"{proto}://{host_name}:{STUDENT_APP_PORT}"
 
     return jsonify({
         'success': True,
         'student_app_url': student_app_url
+    })
+
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint for monitoring and Docker healthchecks."""
+    return jsonify({
+        'status': 'ok',
+        'active_rooms': len(rooms),
+        'total_students': sum(len(r['students']) for r in rooms.values()),
+        'timestamp': time.time()
     })
 
 

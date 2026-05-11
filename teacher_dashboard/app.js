@@ -252,6 +252,7 @@ function connectSocket() {
 function createRoom() {
     const password = el.teacherPassword.value;
     const name = el.teacherName.value.trim() || 'Teacher';
+    const sessionName = document.getElementById('sessionName')?.value.trim() || '';
 
     if (!password) {
         el.loginError.textContent = 'Please enter the teacher password';
@@ -262,9 +263,14 @@ function createRoom() {
     state.teacherName = name;
     el.loginError.classList.add('hidden');
 
+    // Disable button to prevent double-submit
+    el.createRoomBtn.disabled = true;
+    el.createRoomBtn.textContent = 'Creating...';
+
     state.socket.emit('create-room', {
         teacher_name: name,
-        password: password
+        password: password,
+        session_name: sessionName
     });
 }
 
@@ -275,11 +281,27 @@ async function handleRoomCreated(data) {
 
     showView('dashboard');
     el.roomCodeDisplay.textContent = data.room_code;
+
+    // Show session name in header if provided
+    if (data.session_name) {
+        const sessionNameEl = document.createElement('div');
+        sessionNameEl.style.cssText = 'font-size:12px;color:var(--text-muted);margin-top:2px';
+        sessionNameEl.textContent = `📚 ${data.session_name}`;
+        el.roomCodeDisplay.parentElement.appendChild(sessionNameEl);
+    }
+
     if (el.teacherVideoName) el.teacherVideoName.textContent = `${state.teacherName} (You)`;
     initChart();
     initDistributionChart();
 
-    // Start duration timer
+    // Re-enable the Create Classroom button in case teacher goes back to login
+    if (el.createRoomBtn) {
+        el.createRoomBtn.disabled = false;
+        el.createRoomBtn.textContent = 'Create Classroom';
+    }
+
+    // Start duration timer — anchored to the server's actual session start time
+    sessionStartTime = data.started_at ? data.started_at * 1000 : Date.now();
     setInterval(updateDuration, 1000);
 
     // Request notification permission
@@ -437,7 +459,12 @@ async function connectTeacherToLiveKit(url, token) {
 }
 
 function handleStudentJoined(data) {
-    showAlert(`${data.name} joined the classroom`, 'success');
+    // Differentiate between first-join and late-join
+    const joinMsg = data.is_late
+        ? `⏰ ${data.name} joined late`
+        : `✅ ${data.name} joined the classroom`;
+    showAlert(joinMsg, data.is_late ? 'warning' : 'success');
+
     // Remove any ghost entry with the same name OR same SID (handles reconnects)
     state.cachedStudents = state.cachedStudents.filter(
         s => s.name !== data.name && s.sid !== data.sid
@@ -766,11 +793,12 @@ async function loadSessionHistory() {
                 const dt = new Date(s.started_at * 1000);
                 const avg = Math.round((s.avg_score || 0) * 100);
                 const durMin = Math.floor(s.duration / 60);
+                const label = s.session_name ? escapeHtml(s.session_name) : `Room ${escapeHtml(s.room_id)}`;
                 return `
                     <div class="session-card" onclick="openSessionDetail(${s.id})">
                         <div class="session-info">
-                            <h4>Room ${escapeHtml(s.room_id)}</h4>
-                            <p>${dt.toLocaleDateString()} at ${dt.toLocaleTimeString()} · ${durMin}m · ${s.student_count} student(s)</p>
+                            <h4>${label}</h4>
+                            <p>${escapeHtml(s.room_id)} · ${dt.toLocaleDateString()} at ${dt.toLocaleTimeString()} · ${durMin}m · ${s.student_count} student(s)</p>
                         </div>
                         <div class="session-stats">
                             <span class="stat-chip">Avg: ${avg}%</span>
@@ -876,6 +904,9 @@ function renderAttendanceTab(data) {
 }
 
 function renderAISummaryTab(data) {
+    const aiLabel = data.ai_powered
+        ? '<span style="background:#6366f1;color:#fff;font-size:11px;padding:2px 8px;border-radius:20px;margin-left:8px">✨ Gemini AI</span>'
+        : '<span style="background:#555;color:#ccc;font-size:11px;padding:2px 8px;border-radius:20px;margin-left:8px">Rule-based (no API key)</span>';
     el.modalBody.innerHTML = `
         <div class="ai-summary-card">
             <div class="ai-header">
@@ -883,7 +914,7 @@ function renderAISummaryTab(data) {
                     <path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/>
                     <line x1="9" y1="21" x2="15" y2="21"/><line x1="10" y1="24" x2="14" y2="24"/>
                 </svg>
-                <h4>AI Analysis</h4>
+                <h4>AI Analysis ${aiLabel}</h4>
             </div>
             <p class="ai-summary-text">${escapeHtml(data.summary || 'No summary available.')}</p>
 
@@ -1187,13 +1218,39 @@ function kickStudent(sid, name) {
     updateStudentsTable(state.cachedStudents);
 }
 
+// Nudge modal state
+let _nudgeTargetSid = null;
+let _nudgeTargetName = null;
+
 function nudgeStudent(sid, name) {
-    if (!state.socket) return;
-    state.socket.emit('nudge-student', {
-        target_sid: sid,
-        message: `👋 ${state.teacherName || 'Your teacher'} is asking you to pay attention.`
-    });
-    showAlert(`👆 Attention reminder sent to ${name}`, 'info');
+    _nudgeTargetSid = sid;
+    _nudgeTargetName = name;
+    const overlay = document.getElementById('nudgeOverlay');
+    const nameEl = document.getElementById('nudgeStudentName');
+    const msgInput = document.getElementById('nudgeMessageInput');
+    if (nameEl) nameEl.textContent = `To: ${name}`;
+    if (msgInput) msgInput.value = '';
+    if (overlay) overlay.classList.remove('hidden');
+    if (msgInput) setTimeout(() => msgInput.focus(), 100);
+}
+
+function closeNudgeModal() {
+    const overlay = document.getElementById('nudgeOverlay');
+    if (overlay) overlay.classList.add('hidden');
+    _nudgeTargetSid = null;
+    _nudgeTargetName = null;
+}
+
+function sendNudgeMessage() {
+    if (!state.socket || !_nudgeTargetSid) return;
+    const msgInput = document.getElementById('nudgeMessageInput');
+    const custom = msgInput ? msgInput.value.trim() : '';
+    const message = custom
+        ? custom
+        : `👋 ${state.teacherName || 'Your teacher'} is asking you to pay attention.`;
+    state.socket.emit('nudge-student', { target_sid: _nudgeTargetSid, message });
+    showAlert(`👆 Reminder sent to ${_nudgeTargetName}`, 'info');
+    closeNudgeModal();
 }
 
 function acknowledgeHand(sid) {

@@ -18,7 +18,7 @@ gaze-classroom.duckdns.org {
         reverse_proxy backend:5002
     }
 
-    # Backend API endpoints — sessions (PDF/reports/summary), api/*, config
+    # Backend API endpoints — sessions (PDF/reports/summary), api/*, config, health
     handle /sessions/* {
         reverse_proxy backend:5002
     }
@@ -31,8 +31,19 @@ gaze-classroom.duckdns.org {
         reverse_proxy backend:5002
     }
 
+    handle /health {
+        reverse_proxy backend:5002
+    }
+
+    # LiveKit WebSocket proxy — so students can connect via wss://domain/livekit
+    handle /livekit/* {
+        uri strip_prefix /livekit
+        reverse_proxy livekit:7880
+    }
+
     # Student App (catch-all)
     handle {
         reverse_proxy student-app:5001
     }
 }
+

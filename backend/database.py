@@ -42,6 +42,7 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 room_id TEXT NOT NULL,
                 teacher_name TEXT DEFAULT '',
+                session_name TEXT DEFAULT '',
                 started_at REAL NOT NULL,
                 ended_at REAL,
                 is_active INTEGER DEFAULT 1
@@ -92,12 +93,17 @@ def init_db():
 # Session CRUD
 # ============================================================
 
-def create_session(room_id, teacher_name=""):
+def create_session(room_id, teacher_name="", session_name=""):
     """Create a new session and return its ID."""
     with get_db() as conn:
+        # Add session_name column if it doesn't exist yet (migration-safe)
+        try:
+            conn.execute("ALTER TABLE sessions ADD COLUMN session_name TEXT DEFAULT ''")
+        except Exception:
+            pass  # Column already exists
         cursor = conn.execute(
-            "INSERT INTO sessions (room_id, teacher_name, started_at) VALUES (?, ?, ?)",
-            (room_id, teacher_name, time.time())
+            "INSERT INTO sessions (room_id, teacher_name, session_name, started_at) VALUES (?, ?, ?, ?)",
+            (room_id, teacher_name, session_name, time.time())
         )
         return cursor.lastrowid
 
@@ -541,6 +547,7 @@ def get_past_sessions(limit=20):
                 'id': s['id'],
                 'room_id': s['room_id'],
                 'teacher_name': s['teacher_name'],
+                'session_name': s['session_name'] if 'session_name' in s.keys() else '',
                 'started_at': s['started_at'],
                 'ended_at': s['ended_at'],
                 'duration': round(duration),

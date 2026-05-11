@@ -15,10 +15,11 @@ services:
     command: python start_backend.py
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5002/')"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5002/health')"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 15s
 
   student-app:
     build: .
@@ -40,11 +41,23 @@ services:
       backend:
         condition: service_healthy
 
+  livekit:
+    image: livekit/livekit-server:latest
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-60000:50000-60000/udp"
+    volumes:
+      - ./livekit.yaml:/livekit.yaml:ro
+    command: --config /livekit.yaml
+    restart: unless-stopped
+
   caddy:
     image: caddy:2-alpine
     ports:
       - "80:80"
       - "443:443"
+      - "443:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -58,3 +71,4 @@ volumes:
   gaze_data:
   caddy_data:
   caddy_config:
+

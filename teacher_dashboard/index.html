@@ -85,6 +85,7 @@
 
                     <input type="password" id="teacherPassword" placeholder="Enter password" class="form-input">
                     <input type="text" id="teacherName" placeholder="Your name (optional)" class="form-input">
+                    <input type="text" id="sessionName" placeholder="Session name (e.g. Math Lecture 3 — optional)" class="form-input">
 
                     <div class="login-error hidden" id="loginError"></div>
                     <button class="btn btn-primary btn-large" id="createRoomBtn">Create Classroom</button>
@@ -411,6 +412,23 @@
     <audio id="notifSound" preload="auto">
         <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQ==" type="audio/wav">
     </audio>
+
+    <!-- Nudge Student Modal -->
+    <div class="nudge-overlay hidden" id="nudgeOverlay" onclick="closeNudgeModal()">
+        <div class="nudge-modal" onclick="event.stopPropagation()">
+            <div class="nudge-modal-header">
+                <span>👆 Send Attention Reminder</span>
+                <button class="btn-close" onclick="closeNudgeModal()">×</button>
+            </div>
+            <p id="nudgeStudentName" style="color:var(--text-muted);font-size:14px;margin:0 0 12px"></p>
+            <textarea id="nudgeMessageInput" placeholder="Custom message (optional)&#10;e.g. 'Please look at the screen'" 
+                class="form-input" rows="3" style="resize:vertical;font-family:inherit;font-size:14px"></textarea>
+            <div style="display:flex;gap:8px;margin-top:12px">
+                <button class="btn btn-primary" style="flex:1" onclick="sendNudgeMessage()">Send Reminder</button>
+                <button class="btn btn-outline" style="flex:1" onclick="closeNudgeModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
 
     <script src="app.js"></script>
 </body>

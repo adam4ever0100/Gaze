@@ -1,8 +1,13 @@
+# Gaze — LiveKit SFU Configuration
+# API keys must match LIVEKIT_API_KEY and LIVEKIT_API_SECRET in .env
+
 port: 7880
 rtc:
+  tcp_port: 7881
   port_range_start: 50000
   port_range_end: 60000
-  use_external_ip: false
+  use_external_ip: true   # REQUIRED for production (DigitalOcean/cloud VMs)
 keys:
-  devkey: secret
+  devkey: secret          # Change this to match your .env LIVEKIT_API_KEY: LIVEKIT_API_SECRET
 log_level: info
+

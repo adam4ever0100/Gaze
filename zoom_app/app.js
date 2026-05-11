@@ -146,6 +146,13 @@ function connectSocket() {
         console.error('Server error:', data.message);
         showErrorBanner(data.message);
         showLoading(false);
+        // Re-enable join button so student can correct the input
+        el.joinBtn.disabled = false;
+    });
+
+    state.socket.on('rate-limited', (data) => {
+        console.warn('Rate limited:', data.message);
+        // Silent — this is normal for fast attention scoring, no UI needed
     });
 
     // Room events
@@ -331,8 +338,17 @@ async function joinRoom() {
         el.localVideo.srcObject = state.localStream;
     } catch (err) {
         console.error('Camera error:', err);
-        alert('Could not access camera. Please allow camera permission.');
+        let msg = 'Could not access camera. Please allow camera permission.';
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            msg = '❌ Camera permission denied. Please click the camera icon in your browser address bar and allow access.';
+        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+            msg = '❌ No camera found. Please connect a camera and try again.';
+        } else if (err.name === 'NotReadableError') {
+            msg = '❌ Camera is already in use by another app. Please close it and try again.';
+        }
+        showErrorBanner(msg);
         showLoading(false);
+        el.joinBtn.disabled = false;
         return;
     }
 
