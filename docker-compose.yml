@@ -46,22 +46,19 @@ services:
     environment:
       - BACKEND_PORT=5002
       - DATABASE_URL=postgresql://gaze:gaze@postgres:5432/gaze
-      - REDIS_URL=redis://redis:6379/0
     volumes:
       - gaze_data:/app/data
     command: >
       gunicorn
         --bind 0.0.0.0:5002
         --worker-class eventlet
-        --workers 4
+        --workers 1
         --timeout 120
         --access-logfile -
         backend.server:app
     restart: unless-stopped
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5002/health')"]
