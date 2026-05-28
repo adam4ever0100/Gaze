@@ -1,4 +1,4 @@
-so i need from you do expain each file her what its have abd what is the code he include # Gaze — Real-Time Attention Monitoring System
+# Gaze — Real-Time Attention Monitoring System
 
 <div align="center">
 
@@ -12,6 +12,14 @@ so i need from you do expain each file her what its have abd what is the code he
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 </div>
+
+---
+
+## 🚀 Live Demo
+
+You can try out the live version of Gaze here:
+- **Student App:** [https://gaze-classroom.duckdns.org](https://gaze-classroom.duckdns.org)
+- **Teacher Dashboard:** [https://gaze-classroom.duckdns.org/teacher](https://gaze-classroom.duckdns.org/teacher) (Password: `Ux7E22XSw5pXthe oDZykOC3UA`)
 
 ---
 
