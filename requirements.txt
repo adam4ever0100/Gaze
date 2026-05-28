@@ -31,3 +31,9 @@ livekit-api>=1.0.0
 
 # PDF Report Generation
 reportlab>=4.0.0
+
+# PostgreSQL Database (production scaling)
+psycopg2-binary>=2.9.0
+
+# Redis (multi-worker SocketIO message queue)
+redis>=5.0.0

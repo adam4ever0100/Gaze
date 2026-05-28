@@ -57,7 +57,7 @@ from config import (
     SECURITY_HEADERS, ICE_SERVERS,
     TEACHER_PASSWORD, ALERT_THRESHOLD, ALERT_COOLDOWN,
     RATE_LIMIT_PER_SID, RATE_LIMIT_PER_IP, MAX_CONNECTIONS_PER_IP,
-    MAX_STUDENTS_PER_ROOM,
+    MAX_STUDENTS_PER_ROOM, REDIS_URL, VIDEO_PAGE_SIZE,
     LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_URL
 )
 from backend.database import (
@@ -65,7 +65,8 @@ from backend.database import (
     record_attention, get_session_summary, get_active_sessions,
     get_past_sessions, export_session_csv, get_student_timeline,
     add_annotation, get_annotations, delete_annotation,
-    get_attendance_report, generate_ai_summary
+    get_attendance_report, generate_ai_summary,
+    flush_attention_buffer
 )
 
 # Initialize database
@@ -81,7 +82,13 @@ app = Flask(__name__,
 app.secret_key = SECRET_KEY
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+# Use Redis as message queue for multi-worker support if configured
+_socketio_kwargs = dict(cors_allowed_origins="*", async_mode='eventlet')
+if REDIS_URL:
+    _socketio_kwargs['message_queue'] = REDIS_URL
+    print(f"[SocketIO] Using Redis message queue: {REDIS_URL}")
+
+socketio = SocketIO(app, **_socketio_kwargs)
 
 
 # ============================================================
@@ -852,7 +859,8 @@ def get_config():
 
     return jsonify({
         'success': True,
-        'student_app_url': student_app_url
+        'student_app_url': student_app_url,
+        'video_page_size': VIDEO_PAGE_SIZE
     })
 
 

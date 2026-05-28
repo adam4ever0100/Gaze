@@ -48,6 +48,16 @@ class AttentionDetector {
         this.scoreHistory = [];
         this.maxHistoryLength = 5;
 
+        // Adaptive frame-rate throttling
+        this.targetFps = 15;           // Current target FPS
+        this.maxFps = 15;              // Maximum FPS (normal operation)
+        this.minFps = 2;               // Minimum FPS (background tab)
+        this.frameInterval = 66;       // Current interval in ms (1000/15)
+        this.lastFrameTime = 0;        // Last frame processing time (ms)
+        this.frameTimes = [];           // Recent frame processing durations
+        this.maxFrameTimeSamples = 10; // Samples for FPS adaptation
+        this.tabHidden = false;        // Is the browser tab hidden?
+
         // Callbacks
         this.onMetricsUpdate = null;
     }
@@ -127,6 +137,20 @@ class AttentionDetector {
         this.faceMesh.onResults((results) => this.onResults(results));
 
         this.isInitialized = true;
+
+        // Page Visibility API — reduce FPS when tab is hidden
+        document.addEventListener('visibilitychange', () => {
+            this.tabHidden = document.hidden;
+            if (this.tabHidden) {
+                this._setFps(this.minFps);
+                console.log('[Attention] Tab hidden — reducing to', this.minFps, 'FPS');
+            } else {
+                // Restore to the adaptive FPS (not necessarily max)
+                this._adaptFps();
+                console.log('[Attention] Tab visible — restoring to', this.targetFps, 'FPS');
+            }
+        });
+
         console.log('AttentionDetector initialized successfully');
     }
 
@@ -148,6 +172,8 @@ class AttentionDetector {
     async processFrame() {
         if (!this.isProcessing) return;
 
+        const frameStart = performance.now();
+
         if (this.videoElement.readyState >= 2) {
             try {
                 await this.faceMesh.send({ image: this.videoElement });
@@ -156,8 +182,55 @@ class AttentionDetector {
             }
         }
 
-        // Process at ~15 FPS
-        this.animationId = setTimeout(() => this.processFrame(), 66);
+        // Track frame processing time for adaptive FPS
+        const frameTime = performance.now() - frameStart;
+        this.frameTimes.push(frameTime);
+        if (this.frameTimes.length > this.maxFrameTimeSamples) {
+            this.frameTimes.shift();
+        }
+
+        // Adapt FPS based on processing load (skip if tab is hidden)
+        if (!this.tabHidden && this.frameTimes.length >= this.maxFrameTimeSamples) {
+            this._adaptFps();
+        }
+
+        // Schedule next frame with adaptive interval
+        this.animationId = setTimeout(() => this.processFrame(), this.frameInterval);
+    }
+
+    /**
+     * Adapt FPS based on average frame processing time.
+     * If frames take > 80ms on average, the device is struggling — reduce FPS.
+     * If frames take < 40ms, the device can handle more — increase FPS.
+     */
+    _adaptFps() {
+        if (this.tabHidden) return;
+
+        const avgFrameTime = this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length;
+
+        let newFps = this.targetFps;
+        if (avgFrameTime > 80) {
+            // Device is struggling — reduce FPS
+            newFps = Math.max(4, Math.floor(this.targetFps * 0.6));
+        } else if (avgFrameTime > 50) {
+            // Moderate load — slight reduction
+            newFps = Math.max(8, Math.floor(this.targetFps * 0.8));
+        } else if (avgFrameTime < 40 && this.targetFps < this.maxFps) {
+            // Device is comfortable — try increasing
+            newFps = Math.min(this.maxFps, this.targetFps + 1);
+        }
+
+        if (newFps !== this.targetFps) {
+            this._setFps(newFps);
+        }
+    }
+
+    /**
+     * Set the target FPS and update the frame interval.
+     */
+    _setFps(fps) {
+        this.targetFps = fps;
+        this.frameInterval = Math.round(1000 / fps);
     }
 
     stop() {

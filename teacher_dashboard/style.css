@@ -2004,3 +2004,63 @@ h5 {
     font-weight: 600;
     font-size: 15px;
 }
+
+/* ============================================================
+   Video Pagination
+   ============================================================ */
+
+.video-pagination {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 10px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.video-pagination .btn-sm {
+    padding: 5px 12px;
+    font-size: 12px;
+    border-radius: 6px;
+}
+
+#videoPageInfo {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    min-width: 100px;
+    text-align: center;
+}
+
+.priority-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 4px 10px;
+    border-radius: 6px;
+    transition: background 0.15s ease;
+    user-select: none;
+}
+
+.priority-toggle:hover {
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.priority-toggle input[type="checkbox"] {
+    accent-color: var(--danger);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+}
+
+/* Hidden video tiles (pagination) */
+.video-tile-teacher.paginated-hidden {
+    display: none !important;
+}

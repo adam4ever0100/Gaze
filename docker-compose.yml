@@ -1,7 +1,42 @@
-# Gaze — Production Docker Compose
+# Gaze — Production Docker Compose (Scaled)
 # Deploy with: docker compose up -d --build
+#
+# Services:
+#   - backend:     Flask-SocketIO (4 workers via Gunicorn + Redis message queue)
+#   - student-app: Student-facing Flask app
+#   - postgres:    PostgreSQL 16 database (replaces SQLite for scale)
+#   - redis:       Redis 7 (SocketIO message queue for multi-worker)
+#   - livekit:     LiveKit SFU video server
+#   - caddy:       Reverse proxy with automatic HTTPS
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: gaze
+      POSTGRES_PASSWORD: gaze
+      POSTGRES_DB: gaze
+    volumes:
+      - gaze_pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gaze"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - gaze_redis:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
   backend:
     build: .
     expose:
@@ -10,10 +45,24 @@ services:
       - .env
     environment:
       - BACKEND_PORT=5002
+      - DATABASE_URL=postgresql://gaze:gaze@postgres:5432/gaze
+      - REDIS_URL=redis://redis:6379/0
     volumes:
       - gaze_data:/app/data
-    command: python start_backend.py
+    command: >
+      gunicorn
+        --bind 0.0.0.0:5002
+        --worker-class eventlet
+        --workers 4
+        --timeout 120
+        --access-logfile -
+        backend.server:app
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5002/health')"]
       interval: 30s
@@ -69,6 +118,8 @@ services:
 
 volumes:
   gaze_data:
+  gaze_pgdata:
+  gaze_redis:
   caddy_data:
   caddy_config:
 

@@ -62,6 +62,27 @@ DEBUG = os.getenv("DEBUG", "True").lower() == "true"
 SECRET_KEY = os.getenv("SECRET_KEY", "development-secret-key")
 
 # ============================================================
+# Database Configuration (PostgreSQL or SQLite)
+# ============================================================
+# Set DATABASE_URL for PostgreSQL, e.g. postgresql://gaze:gaze@localhost/gaze
+# Leave empty to use SQLite (default for local development)
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+
+# ============================================================
+# Redis Configuration (for multi-worker SocketIO)
+# ============================================================
+# Set REDIS_URL for multi-worker support, e.g. redis://localhost:6379/0
+# Leave empty to use in-memory mode (single worker)
+REDIS_URL = os.getenv("REDIS_URL", "")
+
+# ============================================================
+# Write Buffer Configuration
+# ============================================================
+# Attention records are buffered in memory and flushed in bulk
+DB_WRITE_BUFFER_SIZE = int(os.getenv("DB_WRITE_BUFFER_SIZE", 200))
+DB_WRITE_FLUSH_INTERVAL = int(os.getenv("DB_WRITE_FLUSH_INTERVAL", 10))
+
+# ============================================================
 # SSL / HTTPS Configuration
 # ============================================================
 SSL_ENABLED = os.getenv("SSL_ENABLED", "False").lower() == "true"
@@ -149,7 +170,12 @@ DASHBOARD_POLL_INTERVAL = 2   # Dashboard polls every 2 seconds
 RATE_LIMIT_PER_SID = int(os.getenv("RATE_LIMIT_PER_SID", 5))       # Max requests per second per socket
 RATE_LIMIT_PER_IP = int(os.getenv("RATE_LIMIT_PER_IP", 60))        # Max requests per second per IP
 MAX_CONNECTIONS_PER_IP = int(os.getenv("MAX_CONNECTIONS_PER_IP", 30))  # Max sockets per IP
-MAX_STUDENTS_PER_ROOM = int(os.getenv("MAX_STUDENTS_PER_ROOM", 25))   # Max students per classroom room
+MAX_STUDENTS_PER_ROOM = int(os.getenv("MAX_STUDENTS_PER_ROOM", 200))  # Max students per classroom room
+
+# ============================================================
+# Teacher Dashboard — Video Pagination
+# ============================================================
+VIDEO_PAGE_SIZE = int(os.getenv("VIDEO_PAGE_SIZE", 12))  # Max video tiles per page
 
 # ============================================================
 # Security Headers

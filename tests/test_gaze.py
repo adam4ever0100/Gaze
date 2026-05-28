@@ -105,11 +105,17 @@ class TestDatabase:
         self.original_path = db.DB_PATH
         self.temp_dir = tempfile.mkdtemp()
         db.DB_PATH = os.path.join(self.temp_dir, 'test.db')
+        # Clear any leftover attention buffer from previous tests
+        with db._buffer_lock:
+            db._attention_buffer = []
         db.init_db()
         self.db = db
     
     def teardown_method(self):
-        """Restore original DB path."""
+        """Flush buffer and restore original DB path."""
+        # Clear buffer to avoid leaking into next test
+        with self.db._buffer_lock:
+            self.db._attention_buffer = []
         self.db.DB_PATH = self.original_path
     
     def test_create_session(self):
@@ -137,6 +143,7 @@ class TestDatabase:
         
         self.db.record_attention(student_id, session_id, 0.80, "Focused")
         self.db.record_attention(student_id, session_id, 0.90, "Focused")
+        self.db.flush_attention_buffer()  # Flush write buffer before querying
         
         summary = self.db.get_session_summary(session_id)
         assert summary is not None
@@ -556,11 +563,12 @@ class TestDatabaseExtended:
         assert summary['student_count'] == 0
 
     def test_multiple_attention_records(self):
-        from backend.database import create_session, add_student, record_attention, get_student_timeline
+        from backend.database import create_session, add_student, record_attention, get_student_timeline, flush_attention_buffer
         sid = create_session('TIMELINE', 'Teacher')
         s_id = add_student(sid, 'TimelineStudent')
         for i in range(10):
             record_attention(s_id, sid, 0.5 + i * 0.05, 'focused' if i > 5 else 'partial')
+        flush_attention_buffer()  # Flush write buffer before querying
         timeline = get_student_timeline(s_id)
         assert len(timeline) == 10
 

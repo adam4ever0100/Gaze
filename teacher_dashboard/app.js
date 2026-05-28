@@ -62,7 +62,11 @@ const state = {
     // Students with raised hands
     raisedHands: new Set(),
     // Cached student app URL for QR/invite link
-    _studentAppUrl: null
+    _studentAppUrl: null,
+    // Video pagination
+    videoPage: 0,
+    videoPageSize: 12,
+    priorityMode: false
 };
 
 // ============================================================
@@ -1089,6 +1093,9 @@ function addRemoteVideoTile(identity, name, livekitTrack) {
     tile.title = 'Double-click to view fullscreen';
 
     el.teacherVideoGrid.appendChild(tile);
+
+    // Apply video pagination after adding a new tile
+    applyVideoPagination();
 }
 
 // ============================================================
@@ -1135,8 +1142,12 @@ async function getStudentAppUrl() {
             const data = await res.json();
             if (data.student_app_url) {
                 state._studentAppUrl = data.student_app_url;
-                return state._studentAppUrl;
             }
+            // Load video pagination page size from server config
+            if (data.video_page_size) {
+                state.videoPageSize = data.video_page_size;
+            }
+            if (state._studentAppUrl) return state._studentAppUrl;
         }
     } catch (e) { /* fall through to default */ }
     // Fallback: same origin root (works in production behind nginx)
@@ -1736,6 +1747,99 @@ function handleTeacherReaction(data) {
         bubble.style.transition = 'opacity 0.3s';
         setTimeout(() => bubble.remove(), 300);
     }, 2500);
+}
+
+
+// ============================================================
+// Video Pagination
+// ============================================================
+
+function applyVideoPagination() {
+    if (!el.teacherVideoGrid) return;
+
+    const allTiles = Array.from(el.teacherVideoGrid.querySelectorAll('.remote-tile-teacher'));
+    const totalRemote = allTiles.length;
+    const pageSize = state.videoPageSize;
+    const totalPages = Math.max(1, Math.ceil(totalRemote / pageSize));
+
+    // Clamp current page
+    if (state.videoPage >= totalPages) state.videoPage = totalPages - 1;
+    if (state.videoPage < 0) state.videoPage = 0;
+
+    // Show/hide pagination controls
+    const paginationEl = document.getElementById('videoPagination');
+    if (paginationEl) {
+        if (totalRemote > pageSize) {
+            paginationEl.classList.remove('hidden');
+        } else {
+            paginationEl.classList.add('hidden');
+        }
+    }
+
+    // Priority Mode: sort tiles so distracted students & hand-raisers come first
+    let sortedTiles = allTiles;
+    if (state.priorityMode && state.cachedStudents.length > 0) {
+        sortedTiles = allTiles.sort((a, b) => {
+            const idA = a.id.replace('teacher-tile-', '');
+            const idB = b.id.replace('teacher-tile-', '');
+            const studentA = state.cachedStudents.find(s => s.sid === idA || s.name === idA);
+            const studentB = state.cachedStudents.find(s => s.sid === idB || s.name === idB);
+
+            // Hand raised → top priority
+            const handA = state.raisedHands.has(idA) ? 1 : 0;
+            const handB = state.raisedHands.has(idB) ? 1 : 0;
+            if (handB !== handA) return handB - handA;
+
+            // Lower score → higher priority (more distracted first)
+            const scoreA = studentA ? studentA.score : 1;
+            const scoreB = studentB ? studentB.score : 1;
+            return scoreA - scoreB;
+        });
+    }
+
+    // Apply visibility per page
+    const start = state.videoPage * pageSize;
+    const end = start + pageSize;
+
+    sortedTiles.forEach((tile, idx) => {
+        if (idx >= start && idx < end) {
+            tile.classList.remove('paginated-hidden');
+        } else {
+            tile.classList.add('paginated-hidden');
+        }
+    });
+
+    // Update page info label
+    const pageInfoEl = document.getElementById('videoPageInfo');
+    if (pageInfoEl) {
+        pageInfoEl.textContent = `Page ${state.videoPage + 1} of ${totalPages}`;
+    }
+}
+
+function prevVideoPage() {
+    if (state.videoPage > 0) {
+        state.videoPage--;
+        applyVideoPagination();
+    }
+}
+
+function nextVideoPage() {
+    const allTiles = el.teacherVideoGrid ? el.teacherVideoGrid.querySelectorAll('.remote-tile-teacher').length : 0;
+    const totalPages = Math.max(1, Math.ceil(allTiles / state.videoPageSize));
+    if (state.videoPage < totalPages - 1) {
+        state.videoPage++;
+        applyVideoPagination();
+    }
+}
+
+function togglePriorityMode() {
+    const checkbox = document.getElementById('priorityMode');
+    state.priorityMode = checkbox ? checkbox.checked : false;
+    if (state.priorityMode) {
+        state.videoPage = 0; // Reset to first page
+        showAlert('🔴 Priority Mode: showing most distracted students first', 'info');
+    }
+    applyVideoPagination();
 }
 
 

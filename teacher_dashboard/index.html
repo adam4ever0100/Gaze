@@ -232,6 +232,17 @@
 
                 <!-- Video Grid + Chat -->
                 <div class="meeting-body">
+                    <!-- Video Pagination Controls -->
+                    <div class="video-pagination hidden" id="videoPagination">
+                        <button class="btn btn-outline btn-sm" onclick="prevVideoPage()">← Prev</button>
+                        <span id="videoPageInfo">Page 1 of 1</span>
+                        <button class="btn btn-outline btn-sm" onclick="nextVideoPage()">Next →</button>
+                        <label class="priority-toggle" title="Auto-show most distracted students">
+                            <input type="checkbox" id="priorityMode" onchange="togglePriorityMode()">
+                            🔴 Priority Mode
+                        </label>
+                    </div>
+
                     <!-- Video Grid: teacher's tile + student tiles -->
                     <div class="teacher-video-grid" id="teacherVideoGrid">
                         <div class="video-tile-teacher local-tile-teacher">
