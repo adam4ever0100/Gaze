@@ -24,7 +24,7 @@ python-dotenv>=1.0.0
 pytest>=7.0.0
 
 # WSGI Server (production)
-gunicorn[eventlet]>=21.0.0
+gunicorn[eventlet]>=21.0.0,<23.0.0
 
 # LiveKit SFU
 livekit-api>=1.0.0
