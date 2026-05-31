@@ -245,6 +245,7 @@ def handle_join_room(data):
     """Student joins an existing room."""
     room_code = data.get('room_code', '').upper().strip()
     student_name = data.get('student_name', 'Anonymous')
+    score_only = bool(data.get('score_only', False))
 
     if room_code not in rooms:
         emit('error', {'message': f'Room {room_code} not found'})
@@ -266,7 +267,8 @@ def handle_join_room(data):
         'score': 0,
         'status': 'Connecting',
         'last_update': time.time(),
-        'history': []
+        'history': [],
+        'score_only': score_only
     }
 
     sid_to_room[request.sid] = room_code
@@ -295,7 +297,8 @@ def handle_join_room(data):
         'name': student_name,
         'sid': request.sid,
         'student_count': len(room['students']),
-        'is_late': already_in_session
+        'is_late': already_in_session,
+        'score_only': score_only
     }, room=room_code)
 
     print(f"Student {student_name} joined room {room_code}")
@@ -804,7 +807,8 @@ def _get_dashboard_data(room_code):
             'score': round(data['score'], 3),
             'status': data['status'],
             'active': is_active,
-            'last_update': data['last_update']
+            'last_update': data['last_update'],
+            'score_only': data.get('score_only', False)
         })
 
         if is_active:

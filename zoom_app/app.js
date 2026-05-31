@@ -116,7 +116,8 @@ function connectSocket() {
         if (state.roomCode) {
             state.socket.emit('join-room', {
                 room_code: state.roomCode,
-                student_name: state.studentName
+                student_name: state.studentName,
+                score_only: state.scoreOnlyMode
             });
         }
     });
@@ -370,7 +371,8 @@ async function joinRoom() {
     // Join via socket
     state.socket.emit('join-room', {
         room_code: state.roomCode,
-        student_name: state.studentName
+        student_name: state.studentName,
+        score_only: state.scoreOnlyMode
     });
 }
 

@@ -66,7 +66,9 @@ const state = {
     // Video pagination
     videoPage: 0,
     videoPageSize: 12,
-    priorityMode: false
+    priorityMode: false,
+    // Students in Score-Only (privacy) mode — key: LiveKit identity
+    scoreOnlyStudents: new Set()
 };
 
 // ============================================================
@@ -469,6 +471,13 @@ function handleStudentJoined(data) {
         : `✅ ${data.name} joined the classroom`;
     showAlert(joinMsg, data.is_late ? 'warning' : 'success');
 
+    // Track score-only (privacy) mode by socket SID
+    if (data.score_only) {
+        state.scoreOnlyStudents.add(data.sid);
+        // Also track by LiveKit identity format
+        state.scoreOnlyStudents.add(`student-${data.sid}`);
+    }
+
     // Remove any ghost entry with the same name OR same SID (handles reconnects)
     state.cachedStudents = state.cachedStudents.filter(
         s => s.name !== data.name && s.sid !== data.sid
@@ -480,7 +489,8 @@ function handleStudentJoined(data) {
         score: 0,
         status: 'Connecting',
         active: true,
-        last_update: Date.now() / 1000
+        last_update: Date.now() / 1000,
+        score_only: !!data.score_only
     });
     updateStudentsTable(state.cachedStudents);
 }
@@ -589,7 +599,19 @@ function handleScoreUpdate(data) {
 
     // Update students table
     state.cachedStudents = dashboard.students || [];
+
+    // Sync score_only flags from dashboard data into scoreOnlyStudents set
+    for (const s of state.cachedStudents) {
+        if (s.score_only) {
+            state.scoreOnlyStudents.add(s.sid);
+            state.scoreOnlyStudents.add(`student-${s.sid}`);
+        }
+    }
+
     updateStudentsTable(state.cachedStudents);
+
+    // Update avatar score rings for privacy-mode students
+    updateAvatarScores();
 }
 
 function handleDistractionAlert(data) {
@@ -617,10 +639,11 @@ function updateStudentsTable(students) {
                 networkQuality === 'poor' ? '🔴' : '⚪';
         const hasHand = state.raisedHands.has(s.sid);
         const nameSafe = escapeHtml(s.name);
+        const privacyBadge = s.score_only ? ' <span class="score-only-badge">🔒</span>' : '';
 
         return `
             <tr class="${hasHand ? 'hand-raised-row' : ''}">
-                <td><span class="student-name">${nameSafe}</span></td>
+                <td><span class="student-name">${nameSafe}${privacyBadge}</span></td>
                 <td>
                     <div class="score-bar-wrapper">
                         <div class="score-bar" style="width: ${scorePercent}%;
@@ -1067,35 +1090,121 @@ function addRemoteVideoTile(identity, name, livekitTrack) {
         return;
     }
 
+    const isScoreOnly = state.scoreOnlyStudents.has(identity);
+    const initials = getInitials(name);
+
     const tile = document.createElement('div');
     tile.className = 'video-tile-teacher remote-tile-teacher';
     tile.id = `teacher-tile-${identity}`;
 
-    tile.innerHTML = `
-        <video autoplay playsinline></video>
-        <div class="video-label-teacher">
-            <span class="video-name-teacher">${escapeHtml(name)}</span>
-            <span class="network-badge" id="net-${identity}">⚪</span>
-        </div>
-    `;
+    if (isScoreOnly) {
+        // Score-Only student: show 3D avatar instead of video
+        const avatarIndex = getAvatarIndex(name);
+        tile.innerHTML = `
+            <video autoplay playsinline style="display:none"></video>
+            <div class="avatar-overlay" id="avatar-${identity}">
+                <div class="avatar-ring" data-score="0">
+                    <div class="avatar-circle">
+                        <img class="avatar-img" src="avatars/avatar_${avatarIndex}.png" alt="${escapeHtml(name)}" onerror="this.style.display='none';this.parentElement.innerHTML='<span class=\\'avatar-initials\\'>${escapeHtml(initials)}</span>'" />
+                    </div>
+                </div>
+                <span class="avatar-name">${escapeHtml(name)}</span>
+                <span class="avatar-score-text" id="avatar-score-${identity}">0%</span>
+                <span class="avatar-privacy-badge">🔒 Score Only</span>
+            </div>
+            <div class="video-label-teacher">
+                <span class="video-name-teacher">${escapeHtml(name)}</span>
+                <span class="network-badge" id="net-${identity}">🔒</span>
+            </div>
+        `;
+    } else {
+        tile.innerHTML = `
+            <video autoplay playsinline></video>
+            <div class="video-label-teacher">
+                <span class="video-name-teacher">${escapeHtml(name)}</span>
+                <span class="network-badge" id="net-${identity}">⚪</span>
+            </div>
+        `;
+    }
 
     const videoEl = tile.querySelector('video');
     livekitTrack.attach(videoEl);
 
-    // Double-click tile to view fullscreen
-    tile.addEventListener('dblclick', () => {
-        if (videoEl && videoEl.srcObject) {
-            if (el.screenShareName) el.screenShareName.textContent = escapeHtml(name);
-            showScreenShareFullscreen(identity, videoEl.srcObject);
-        }
-    });
-    tile.style.cursor = 'pointer';
-    tile.title = 'Double-click to view fullscreen';
+    // Double-click tile to view fullscreen (only for non-score-only)
+    if (!isScoreOnly) {
+        tile.addEventListener('dblclick', () => {
+            if (videoEl && videoEl.srcObject) {
+                if (el.screenShareName) el.screenShareName.textContent = escapeHtml(name);
+                showScreenShareFullscreen(identity, videoEl.srcObject);
+            }
+        });
+        tile.style.cursor = 'pointer';
+        tile.title = 'Double-click to view fullscreen';
+    }
 
     el.teacherVideoGrid.appendChild(tile);
 
     // Apply video pagination after adding a new tile
     applyVideoPagination();
+}
+
+/**
+ * Pick a consistent avatar image (1-6) based on a student's name.
+ * Uses a simple hash so the same student always gets the same avatar.
+ */
+function getAvatarIndex(name) {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+        hash = ((hash << 5) - hash) + name.charCodeAt(i);
+        hash = hash & hash; // Convert to 32-bit integer
+    }
+    return (Math.abs(hash) % 6) + 1; // 1-6
+}
+
+/**
+ * Extract initials from a student's name (up to 2 letters).
+ */
+function getInitials(name) {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) {
+        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+}
+
+/**
+ * Update avatar score rings for score-only students.
+ * Called whenever score-update arrives.
+ */
+function updateAvatarScores() {
+    for (const student of state.cachedStudents) {
+        if (!student.score_only) continue;
+
+        // Try both SID and LiveKit identity format
+        const identities = [student.sid, `student-${student.sid}`];
+        for (const identity of identities) {
+            const ring = document.querySelector(`#avatar-${identity} .avatar-ring`);
+            const scoreText = document.getElementById(`avatar-score-${identity}`);
+            if (!ring) continue;
+
+            const percent = Math.round(student.score * 100);
+            ring.setAttribute('data-score', percent);
+
+            // Update ring color
+            let ringColor;
+            if (percent >= 70) ringColor = 'var(--success)';
+            else if (percent >= 40) ringColor = 'var(--warning)';
+            else ringColor = 'var(--danger)';
+
+            ring.style.setProperty('--ring-color', ringColor);
+            ring.style.background = `conic-gradient(${ringColor} ${percent * 3.6}deg, rgba(255,255,255,0.08) 0deg)`;
+
+            if (scoreText) {
+                scoreText.textContent = `${percent}%`;
+                scoreText.style.color = percent >= 70 ? 'var(--success)' : percent >= 40 ? 'var(--warning)' : 'var(--danger)';
+            }
+        }
+    }
 }
 
 // ============================================================
