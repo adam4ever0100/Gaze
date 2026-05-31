@@ -2091,9 +2091,9 @@ h5 {
 /* Score ring — conic gradient border around the avatar */
 .avatar-ring {
     --ring-color: var(--success);
-    width: 60%;
+    width: 45%;
     aspect-ratio: 1;
-    max-width: 140px;
+    max-width: 100px;
     border-radius: 50%;
     padding: 4px;
     background: conic-gradient(var(--ring-color) 0deg, rgba(255,255,255,0.08) 0deg);
