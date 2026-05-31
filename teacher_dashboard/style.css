@@ -2125,12 +2125,12 @@ h5 {
 
 /* 3D avatar image — scaled up to crop transparent edges */
 .avatar-img {
-    width: 130%;
-    height: 130%;
+    width: 140%;
+    height: 140%;
     object-fit: cover;
-    border-radius: 50%;
     pointer-events: none;
     user-select: none;
+    background: #0e0e20;
 }
 
 /* Force dark background on score-only tiles to prevent white bleed */
