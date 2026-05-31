@@ -2077,9 +2077,10 @@ h5 {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 4px;
     z-index: 2;
     animation: avatarFadeIn 0.5s ease;
+    padding: 8px;
 }
 
 @keyframes avatarFadeIn {
@@ -2090,8 +2091,9 @@ h5 {
 /* Score ring — conic gradient border around the avatar */
 .avatar-ring {
     --ring-color: var(--success);
-    width: 90px;
-    height: 90px;
+    width: 60%;
+    aspect-ratio: 1;
+    max-width: 140px;
     border-radius: 50%;
     padding: 4px;
     background: conic-gradient(var(--ring-color) 0deg, rgba(255,255,255,0.08) 0deg);
@@ -2142,7 +2144,7 @@ h5 {
 
 /* Student name below avatar */
 .avatar-name {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     color: var(--text-primary);
     text-align: center;
@@ -2150,25 +2152,25 @@ h5 {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    margin-top: 2px;
 }
 
 /* Live score text */
 .avatar-score-text {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 700;
     color: var(--success);
     font-variant-numeric: tabular-nums;
     transition: color 0.4s ease;
+    line-height: 1;
 }
 
 /* Privacy badge */
 .avatar-privacy-badge {
-    font-size: 10px;
+    font-size: 9px;
     color: var(--text-secondary);
     background: rgba(99, 102, 241, 0.1);
     border: 1px solid rgba(99, 102, 241, 0.15);
-    padding: 2px 8px;
+    padding: 1px 6px;
     border-radius: 10px;
     letter-spacing: 0.3px;
 }
@@ -2184,8 +2186,7 @@ h5 {
 /* Responsive: larger avatars on wider screens */
 @media (min-width: 1200px) {
     .avatar-ring {
-        width: 110px;
-        height: 110px;
+        max-width: 160px;
     }
     .avatar-name {
         font-size: 13px;
