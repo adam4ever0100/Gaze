@@ -1104,3 +1104,332 @@ body {
     height: 100%;
     object-fit: contain;
 }
+
+/* ============================================================
+   Calibration Overlay
+   ============================================================ */
+
+.calibration-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 10, 20, 0.92);
+    backdrop-filter: blur(12px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1100;
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+}
+
+.calibration-content {
+    text-align: center;
+    color: var(--text-primary);
+}
+
+.calibration-dot-container {
+    position: relative;
+    width: 120px;
+    height: 120px;
+    margin: 0 auto 28px;
+}
+
+.calibration-dot {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 20px var(--accent-glow), 0 0 60px rgba(99, 102, 241, 0.2);
+    transform: translate(-50%, -50%);
+    animation: calibPulse 1.2s ease-in-out infinite;
+    z-index: 2;
+}
+
+@keyframes calibPulse {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 20px var(--accent-glow); }
+    50% { transform: translate(-50%, -50%) scale(1.3); box-shadow: 0 0 30px var(--accent-glow), 0 0 60px rgba(99, 102, 241, 0.3); }
+}
+
+.calibration-ring {
+    width: 120px;
+    height: 120px;
+}
+
+.calibration-ring-bg {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.06);
+    stroke-width: 6;
+}
+
+.calibration-ring-progress {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 6;
+    stroke-linecap: round;
+    stroke-dasharray: 339.292;
+    stroke-dashoffset: 339.292;
+    transform: rotate(-90deg);
+    transform-origin: center;
+    transition: stroke-dashoffset 0.15s linear;
+}
+
+.calibration-title {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, var(--text-primary), var(--accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.calibration-instruction {
+    color: var(--text-secondary);
+    font-size: 15px;
+    margin-bottom: 16px;
+}
+
+.calibration-instruction strong {
+    color: var(--accent);
+}
+
+.calibration-timer {
+    font-size: 42px;
+    font-weight: 700;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+   Environment Warning Overlay
+   ============================================================ */
+
+.env-warning-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 10, 20, 0.88);
+    backdrop-filter: blur(10px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1050;
+    animation: fadeIn 0.3s ease;
+}
+
+.env-warning-content {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 32px;
+    max-width: 440px;
+    width: 90%;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.env-warning-content h3 {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 20px;
+    color: var(--text-primary);
+}
+
+.env-warnings-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.env-warning-card {
+    padding: 14px 16px;
+    border-radius: var(--radius);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.env-warning-card.warning {
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.env-warning-card.info {
+    background: rgba(99, 102, 241, 0.08);
+    border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.env-warning-card .warning-message {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.env-warning-card .warning-suggestion {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* ============================================================
+   Multi-State Attention Badges (5 states)
+   ============================================================ */
+
+.attention-badge.drowsy,
+.status-badge.drowsy {
+    background: rgba(251, 146, 60, 0.2);
+    color: #fb923c;
+    border-color: rgba(251, 146, 60, 0.3);
+}
+
+.attention-badge.absent,
+.status-badge.absent {
+    background: rgba(148, 163, 184, 0.15);
+    color: #94a3b8;
+    border-color: rgba(148, 163, 184, 0.2);
+}
+
+.attention-badge.phone-use,
+.status-badge.phone-use {
+    background: rgba(168, 85, 247, 0.15);
+    color: #c084fc;
+    border-color: rgba(168, 85, 247, 0.25);
+}
+
+/* Calibration badge indicator */
+.calibrated-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+    background: rgba(34, 197, 94, 0.1);
+    color: var(--success);
+    border: 1px solid rgba(34, 197, 94, 0.15);
+}
+
+/* ============================================================
+   Student Nudge Overlay (Glassmorphism & Alerts)
+   ============================================================ */
+.student-nudge-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 10, 20, 0.75);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    animation: nudgeFadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.student-nudge-overlay.hidden {
+    display: none !important;
+}
+
+.student-nudge-content {
+    background: rgba(30, 30, 50, 0.65);
+    backdrop-filter: blur(25px);
+    -webkit-backdrop-filter: blur(25px);
+    border: 1px solid rgba(251, 146, 60, 0.3);
+    border-radius: 16px;
+    padding: 40px;
+    max-width: 460px;
+    width: 90%;
+    text-align: center;
+    box-shadow: 0 30px 70px rgba(0, 0, 0, 0.5), 0 0 40px rgba(251, 146, 60, 0.15);
+    transform: scale(1);
+    animation: nudgeScaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.student-nudge-overlay.dismissing .student-nudge-content {
+    transform: scale(0.9);
+    opacity: 0;
+}
+
+.student-nudge-overlay.dismissing {
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.student-nudge-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.nudge-wiggle-icon {
+    font-size: 56px;
+    filter: drop-shadow(0 0 15px rgba(251, 146, 60, 0.5));
+    animation: wiggle 1.2s infinite;
+}
+
+.student-nudge-content h3 {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #fcd34d, #f97316);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+#studentNudgeMessage {
+    color: var(--text-secondary);
+    font-size: 15px;
+    line-height: 1.6;
+    margin-bottom: 30px;
+}
+
+#studentNudgeDismissBtn {
+    background: linear-gradient(135deg, #f59e0b, #ea580c);
+    color: white;
+    border: none;
+    box-shadow: 0 4px 20px rgba(245, 158, 11, 0.3);
+    width: 100%;
+    padding: 14px;
+    font-size: 15px;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+#studentNudgeDismissBtn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 25px rgba(245, 158, 11, 0.5);
+}
+
+#studentNudgeDismissBtn:active {
+    transform: translateY(1px);
+}
+
+@keyframes nudgeFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes nudgeScaleIn {
+    from { transform: scale(0.9) translateY(20px); opacity: 0; }
+    to { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+@keyframes wiggle {
+    0%, 100% { transform: rotate(0); }
+    15% { transform: rotate(-12deg); }
+    30% { transform: rotate(14deg); }
+    45% { transform: rotate(-10deg); }
+    60% { transform: rotate(8deg); }
+    75% { transform: rotate(-4deg); }
+}

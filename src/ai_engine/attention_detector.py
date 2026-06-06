@@ -24,7 +24,9 @@ from config import (
     WEIGHT_GAZE, WEIGHT_HEAD_POSE, WEIGHT_EYE_OPENNESS, WEIGHT_FACE_PRESENCE,
     EAR_THRESHOLD_CLOSED, EAR_THRESHOLD_OPEN, BLINK_CONSECUTIVE_FRAMES,
     HEAD_YAW_THRESHOLD, HEAD_PITCH_THRESHOLD, GAZE_THRESHOLD,
-    THRESHOLD_FOCUSED, THRESHOLD_PARTIAL
+    THRESHOLD_FOCUSED, THRESHOLD_PARTIAL,
+    DROWSY_EAR_THRESHOLD, DROWSY_BLINK_RATE_MIN, DROWSY_HEAD_PITCH_MIN,
+    PHONE_USE_PITCH_THRESHOLD, ABSENT_NO_FACE_SECONDS
 )
 
 
@@ -104,6 +106,11 @@ class AttentionDetector:
         # Camera matrix placeholder (updated with frame dimensions)
         self.camera_matrix = None
         self.dist_coeffs = np.zeros((4, 1))
+        
+        # Multi-state tracking
+        self.consecutive_no_face_frames = 0
+        self.no_face_fps_estimate = 10  # Estimated FPS for frame counting
+        self.recent_ear_values = deque(maxlen=30)  # ~2-3 seconds of EAR
     
     def _calculate_ear(self, eye_landmarks: list, landmarks, img_w: int, img_h: int) -> float:
         """
@@ -171,12 +178,20 @@ class AttentionDetector:
         left_h_ratio = horizontal_ratio(left_iris_center, left_inner, left_outer)
         right_h_ratio = horizontal_ratio(right_iris_center, right_inner, right_outer)
         
-        # Average horizontal gaze
         h_gaze = (left_h_ratio + right_h_ratio) / 2
-        
-        # For vertical, use eye landmark positions
-        # Simplified: just use the iris center relative to eye center
-        v_gaze = 0.5  # Assume center for now
+
+        # For vertical, calculate vertical ratio relative to eyelids in pixels
+        left_top_y = (landmarks[385].y + landmarks[387].y) / 2 * img_h
+        left_bottom_y = (landmarks[373].y + landmarks[380].y) / 2 * img_h
+        left_height = abs(left_bottom_y - left_top_y)
+        left_v_ratio = (left_iris_center[1] - left_top_y) / left_height if left_height > 0 else 0.5
+
+        right_top_y = (landmarks[160].y + landmarks[158].y) / 2 * img_h
+        right_bottom_y = (landmarks[153].y + landmarks[144].y) / 2 * img_h
+        right_height = abs(right_bottom_y - right_top_y)
+        right_v_ratio = (right_iris_center[1] - right_top_y) / right_height if right_height > 0 else 0.5
+
+        v_gaze = (left_v_ratio + right_v_ratio) / 2
         
         return h_gaze, v_gaze
     
@@ -258,10 +273,12 @@ class AttentionDetector:
         else:
             eye_openness = (ear - EAR_THRESHOLD_CLOSED) / (EAR_THRESHOLD_OPEN - EAR_THRESHOLD_CLOSED)
         
-        # Gaze score (how centered is the gaze)
+        # Gaze score (how centered is the gaze, both horizontal and vertical)
         h_gaze, v_gaze = gaze
         h_deviation = abs(h_gaze - 0.5) * 2  # 0 = centered, 1 = at edges
-        gaze_score = max(0.0, 1.0 - (h_deviation / GAZE_THRESHOLD) * 0.5)
+        v_deviation = abs(v_gaze - 0.5) * 2.5  # 0 = centered, 1 = at edges (vertical sensitivity)
+        max_deviation = max(h_deviation, v_deviation)
+        gaze_score = max(0.0, 1.0 - (max_deviation / GAZE_THRESHOLD) * 0.5)
         
         # Head pose score (how aligned with screen)
         yaw, pitch, roll = head_pose
@@ -285,8 +302,39 @@ class AttentionDetector:
             "attention_score": round(attention_score, 3)
         }
     
-    def _classify_status(self, score: float) -> str:
-        """Classify attention status based on score."""
+    def _classify_status(self, score: float, ear: float = 0.0,
+                          blink_rate: float = 0.0,
+                          head_pose: Tuple[float, float, float] = (0, 0, 0)) -> str:
+        """
+        Multi-factor attention state classification.
+        
+        Returns one of:
+        - 'Focused'             — actively looking at screen, eyes open
+        - 'Partially Attentive' — borderline attention
+        - 'Distracted'          — looking away or low score
+        - 'Drowsy'              — half-closed eyes + high blink rate + head drooping
+        - 'Absent'              — no face detected for extended period
+        - 'Phone Use'           — head pitched strongly downward
+        """
+        yaw, pitch, roll = head_pose
+        
+        # Phone use: head pitched strongly downward (looking at lap)
+        if pitch < PHONE_USE_PITCH_THRESHOLD and score < 0.7:
+            return "Phone Use"
+        
+        # Drowsy detection: use recent EAR values + blink rate + head droop
+        if len(self.recent_ear_values) >= 10:
+            avg_recent_ear = sum(self.recent_ear_values) / len(self.recent_ear_values)
+            is_drowsy_ear = (avg_recent_ear < DROWSY_EAR_THRESHOLD and avg_recent_ear > 0.10)
+            is_drowsy_blink = blink_rate > DROWSY_BLINK_RATE_MIN
+            is_drowsy_pitch = pitch > DROWSY_HEAD_PITCH_MIN
+            
+            # At least 2 of 3 drowsy indicators must be present
+            drowsy_signals = sum([is_drowsy_ear, is_drowsy_blink, is_drowsy_pitch])
+            if drowsy_signals >= 2:
+                return "Drowsy"
+        
+        # Fall back to score-based classification
         if score >= THRESHOLD_FOCUSED:
             return "Focused"
         elif score >= THRESHOLD_PARTIAL:
@@ -342,10 +390,20 @@ class AttentionDetector:
         results = self.face_mesh.process(rgb_frame)
         
         if not results.multi_face_landmarks:
-            self.current_metrics["face_detected"] = False
-            self.current_metrics["attention_score"] = 0.0
-            self.current_metrics["status"] = "No Face Detected"
+            self.consecutive_no_face_frames += 1
+            no_face_threshold = int(ABSENT_NO_FACE_SECONDS * self.no_face_fps_estimate)
+            
+            if self.consecutive_no_face_frames >= no_face_threshold:
+                self.current_metrics["face_detected"] = False
+                self.current_metrics["attention_score"] = 0.0
+                self.current_metrics["status"] = "Absent"
+            else:
+                self.current_metrics["face_detected"] = False
+                self.current_metrics["attention_score"] = 0.0
+                self.current_metrics["status"] = "No Face Detected"
             return self.current_metrics
+        
+        self.consecutive_no_face_frames = 0
         
         # Get first face landmarks
         face_landmarks = results.multi_face_landmarks[0].landmark
@@ -354,6 +412,9 @@ class AttentionDetector:
         left_ear = self._calculate_ear(self.LEFT_EYE, face_landmarks, img_w, img_h)
         right_ear = self._calculate_ear(self.RIGHT_EYE, face_landmarks, img_w, img_h)
         avg_ear = (left_ear + right_ear) / 2
+        
+        # Track recent EAR for drowsy detection
+        self.recent_ear_values.append(avg_ear)
         
         # Calculate gaze
         gaze = self._calculate_gaze(face_landmarks, img_w, img_h)
@@ -371,11 +432,16 @@ class AttentionDetector:
         # Update blink rate
         blink_rate = self._update_blink_rate(avg_ear)
         
+        # Multi-state classification
+        status = self._classify_status(
+            smoothed_score, avg_ear, blink_rate, head_pose
+        )
+        
         # Update current metrics
         self.current_metrics.update({
             "face_detected": True,
             "attention_score": round(smoothed_score, 3),
-            "status": self._classify_status(smoothed_score),
+            "status": status,
             "gaze_score": scores["gaze_score"],
             "head_pose_score": scores["head_pose_score"],
             "eye_openness": scores["eye_openness"],

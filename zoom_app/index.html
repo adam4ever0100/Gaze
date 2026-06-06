@@ -261,6 +261,43 @@
             <video id="screenShareVideo" autoplay playsinline></video>
         </div>
 
+        <!-- Environment Warning Overlay -->
+        <div class="env-warning-overlay hidden" id="envWarningOverlay">
+            <div class="env-warning-content">
+                <h3>⚠️ Environment Check</h3>
+                <div class="env-warnings-list" id="envWarningsList"></div>
+                <button class="btn btn-primary" id="envWarningDismissBtn">Continue Anyway</button>
+            </div>
+        </div>
+
+        <!-- Calibration Overlay -->
+        <div class="calibration-overlay hidden" id="calibrationOverlay">
+            <div class="calibration-content">
+                <div class="calibration-dot-container">
+                    <div class="calibration-dot" id="calibrationDot"></div>
+                    <svg class="calibration-ring" viewBox="0 0 120 120">
+                        <circle class="calibration-ring-bg" cx="60" cy="60" r="54" />
+                        <circle class="calibration-ring-progress" id="calibrationRingProgress" cx="60" cy="60" r="54" />
+                    </svg>
+                </div>
+                <h3 class="calibration-title">Calibrating...</h3>
+                <p class="calibration-instruction">Look at the <strong>center dot</strong> on your screen</p>
+                <p class="calibration-timer" id="calibrationTimer">5</p>
+            </div>
+        </div>
+
+        <!-- Nudge Overlay -->
+        <div class="student-nudge-overlay hidden" id="studentNudgeOverlay">
+            <div class="student-nudge-content">
+                <div class="student-nudge-header">
+                    <div class="nudge-wiggle-icon">✋</div>
+                    <h3>Attention Reminder</h3>
+                </div>
+                <p id="studentNudgeMessage">Please focus on the screen.</p>
+                <button class="btn btn-primary" id="studentNudgeDismissBtn">Got it!</button>
+            </div>
+        </div>
+
         <!-- Loading Overlay -->
         <div class="loading-overlay hidden" id="loadingOverlay">
             <div class="loading-content">

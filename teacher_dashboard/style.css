@@ -538,6 +538,133 @@ body {
     overflow: hidden;
     background: var(--bg-primary);
     border: 1px solid var(--border);
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Attention Status Glows */
+.video-tile-teacher[data-status="Focused"] {
+    border-color: var(--success);
+    box-shadow: 0 0 15px rgba(34, 197, 94, 0.25);
+}
+
+.video-tile-teacher[data-status="Partially Attentive"] {
+    border-color: var(--warning);
+    box-shadow: 0 0 15px rgba(245, 158, 11, 0.25);
+}
+
+.video-tile-teacher[data-status="Distracted"] {
+    border-color: var(--danger);
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
+    animation: tilePulseRed 2s infinite;
+}
+
+.video-tile-teacher[data-status="Drowsy"] {
+    border-color: #f97316;
+    box-shadow: 0 0 20px rgba(249, 115, 22, 0.4);
+    animation: tilePulseOrange 2s infinite;
+}
+
+.video-tile-teacher[data-status="Phone Use"] {
+    border-color: #8b5cf6;
+    box-shadow: 0 0 20px rgba(139, 92, 246, 0.4);
+    animation: tilePulsePurple 2s infinite;
+}
+
+.video-tile-teacher[data-status="Absent"] {
+    border-color: #6b7280;
+    box-shadow: 0 0 15px rgba(107, 114, 128, 0.2);
+}
+
+/* Video Tile Score & Status Badges */
+.tile-attention-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    padding: 3px 8px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 700;
+    z-index: 8;
+    color: white;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s ease;
+}
+
+.tile-attention-badge[data-status="Focused"] {
+    background: rgba(34, 197, 94, 0.75);
+}
+
+.tile-attention-badge[data-status="Partially Attentive"] {
+    background: rgba(245, 158, 11, 0.75);
+}
+
+.tile-attention-badge[data-status="Distracted"] {
+    background: rgba(239, 68, 68, 0.75);
+}
+
+.tile-attention-badge[data-status="Drowsy"] {
+    background: rgba(249, 115, 22, 0.75);
+}
+
+.tile-attention-badge[data-status="Phone Use"] {
+    background: rgba(139, 92, 246, 0.75);
+}
+
+.tile-attention-badge[data-status="Absent"] {
+    background: rgba(107, 114, 128, 0.75);
+}
+
+/* Absent Mask overlay */
+.absent-mask {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 15, 25, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #94a3b8;
+    z-index: 5;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+.video-tile-teacher[data-status="Absent"] .absent-mask {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.absent-mask-icon {
+    font-size: 24px;
+    margin-bottom: 4px;
+}
+
+.absent-mask-text {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+@keyframes tilePulseRed {
+    0%, 100% { box-shadow: 0 0 15px rgba(239, 68, 68, 0.3); }
+    50% { box-shadow: 0 0 25px rgba(239, 68, 68, 0.6); }
+}
+
+@keyframes tilePulseOrange {
+    0%, 100% { box-shadow: 0 0 15px rgba(249, 115, 22, 0.3); }
+    50% { box-shadow: 0 0 25px rgba(249, 115, 22, 0.6); }
+}
+
+@keyframes tilePulsePurple {
+    0%, 100% { box-shadow: 0 0 15px rgba(139, 92, 246, 0.3); }
+    50% { box-shadow: 0 0 25px rgba(139, 92, 246, 0.6); }
 }
 
 .video-tile-teacher video {
@@ -869,6 +996,54 @@ body {
 .badge-danger {
     background: rgba(239, 68, 68, 0.12);
     color: var(--danger);
+}
+
+.badge-drowsy {
+    background: rgba(251, 146, 60, 0.15);
+    color: #fb923c;
+}
+
+.badge-absent {
+    background: rgba(148, 163, 184, 0.12);
+    color: #94a3b8;
+}
+
+.badge-phone {
+    background: rgba(168, 85, 247, 0.12);
+    color: #c084fc;
+}
+
+/* Per-student baseline deviation indicator */
+.baseline-indicator {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Temporal analysis tab styles */
+.temporal-insights {
+    padding: 16px;
+    background: rgba(99, 102, 241, 0.06);
+    border: 1px solid rgba(99, 102, 241, 0.15);
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+.temporal-insights h4 {
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.temporal-drop-alert {
+    padding: 12px 16px;
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-size: 13px;
+    color: #fcd34d;
 }
 
 .activity-dot {
@@ -2077,10 +2252,10 @@ h5 {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 4px;
+    gap: 8px;
     z-index: 2;
     animation: avatarFadeIn 0.5s ease;
-    padding: 8px;
+    overflow: hidden;
 }
 
 @keyframes avatarFadeIn {
@@ -2091,11 +2266,11 @@ h5 {
 /* Score ring — conic gradient border around the avatar */
 .avatar-ring {
     --ring-color: var(--success);
-    width: 45%;
+    width: 42%;
     aspect-ratio: 1;
-    max-width: 100px;
+    max-width: 90px;
     border-radius: 50%;
-    padding: 4px;
+    padding: 3px;
     background: conic-gradient(var(--ring-color) 0deg, rgba(255,255,255,0.08) 0deg);
     display: flex;
     align-items: center;
@@ -2110,7 +2285,7 @@ h5 {
     50%      { box-shadow: 0 0 28px rgba(99, 102, 241, 0.25); }
 }
 
-/* Inner circle containing the avatar image */
+/* Inner circle containing the avatar SVG */
 .avatar-circle {
     width: 100%;
     height: 100%;
@@ -2123,28 +2298,120 @@ h5 {
     border: 2px solid rgba(255,255,255,0.08);
 }
 
-/* 3D avatar image — scaled up to crop transparent edges */
-.avatar-img {
-    width: 140%;
-    height: 140%;
-    object-fit: cover;
-    pointer-events: none;
-    user-select: none;
-    background: #0e0e20;
+/* Dynamic SVG Avatar Styles */
+.avatar-svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* Pupil transition animation */
+.avatar-svg .pupil {
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    transform-origin: center;
+}
+
+/* Default expression state visibilities */
+.avatar-svg .eyes-open {
+    display: block;
+}
+.avatar-svg .eyes-closed {
+    display: none;
+}
+.avatar-svg .mouth {
+    display: none;
+    transition: opacity 0.2s ease;
+}
+
+/* 1. Focused State */
+[data-status="Focused"] .avatar-svg .eyes-open {
+    display: block;
+}
+[data-status="Focused"] .avatar-svg .eyes-closed {
+    display: none;
+}
+[data-status="Focused"] .avatar-svg .mouth-smile {
+    display: block;
+}
+[data-status="Focused"] .avatar-svg .pupil {
+    transform: translate(0, 0);
+}
+
+/* 2. Partially Attentive State */
+[data-status="Partially Attentive"] .avatar-svg .eyes-open {
+    display: block;
+}
+[data-status="Partially Attentive"] .avatar-svg .eyes-closed {
+    display: none;
+}
+[data-status="Partially Attentive"] .avatar-svg .mouth-neutral {
+    display: block;
+}
+[data-status="Partially Attentive"] .avatar-svg .pupil {
+    transform: translate(0, 0);
+}
+
+/* 3. Distracted State (Eyes looking away) */
+[data-status="Distracted"] .avatar-svg .eyes-open {
+    display: block;
+}
+[data-status="Distracted"] .avatar-svg .eyes-closed {
+    display: none;
+}
+[data-status="Distracted"] .avatar-svg .mouth-neutral {
+    display: block;
+}
+[data-status="Distracted"] .avatar-svg .pupil {
+    transform: translate(3px, -1px);
+}
+
+/* 4. Phone Use State (Looking down) */
+[data-status="Phone Use"] .avatar-svg .eyes-open {
+    display: block;
+}
+[data-status="Phone Use"] .avatar-svg .eyes-closed {
+    display: none;
+}
+[data-status="Phone Use"] .avatar-svg .mouth-frown {
+    display: block;
+}
+[data-status="Phone Use"] .avatar-svg .pupil {
+    transform: translate(0, 4px);
+}
+
+/* 5. Drowsy State (Closed sleepiness arcs and yawn mouth) */
+[data-status="Drowsy"] .avatar-svg .eyes-open {
+    display: none;
+}
+[data-status="Drowsy"] .avatar-svg .eyes-closed {
+    display: block;
+}
+[data-status="Drowsy"] .avatar-svg .mouth-yawn {
+    display: block;
+}
+
+/* 6. Absent State (Closed sleepiness arcs, neutral mouth, pulsing) */
+[data-status="Absent"] .avatar-svg {
+    animation: absentPulse 2s ease-in-out infinite;
+}
+[data-status="Absent"] .avatar-svg .eyes-open {
+    display: none;
+}
+[data-status="Absent"] .avatar-svg .eyes-closed {
+    display: block;
+}
+[data-status="Absent"] .avatar-svg .mouth-neutral {
+    display: block;
+}
+
+@keyframes absentPulse {
+    0%, 100% { opacity: 0.5; transform: scale(0.96); }
+    50%      { opacity: 0.8; transform: scale(1.02); }
 }
 
 /* Force dark background on score-only tiles to prevent white bleed */
 .video-tile-teacher:has(.avatar-overlay) {
     background: #0a0a18 !important;
-}
-
-/* Fallback initials (if image fails to load) */
-.avatar-initials {
-    font-size: 28px;
-    font-weight: 700;
-    color: var(--text-primary);
-    letter-spacing: 1px;
-    text-transform: uppercase;
 }
 
 /* Student name below avatar */
@@ -2161,7 +2428,7 @@ h5 {
 
 /* Live score text */
 .avatar-score-text {
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 700;
     color: var(--success);
     font-variant-numeric: tabular-nums;

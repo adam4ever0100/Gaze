@@ -89,7 +89,18 @@ const el = {
     screenShareOverlay: document.getElementById('screenShareOverlay'),
     screenShareVideo: document.getElementById('screenShareVideo'),
     screenShareName: document.getElementById('screenShareName'),
-    exitScreenShareBtn: document.getElementById('exitScreenShareBtn')
+    exitScreenShareBtn: document.getElementById('exitScreenShareBtn'),
+    // Calibration & environment overlays
+    calibrationOverlay: document.getElementById('calibrationOverlay'),
+    calibrationTimer: document.getElementById('calibrationTimer'),
+    calibrationRingProgress: document.getElementById('calibrationRingProgress'),
+    envWarningOverlay: document.getElementById('envWarningOverlay'),
+    envWarningsList: document.getElementById('envWarningsList'),
+    envWarningDismissBtn: document.getElementById('envWarningDismissBtn'),
+    // Nudge overlay
+    studentNudgeOverlay: document.getElementById('studentNudgeOverlay'),
+    studentNudgeMessage: document.getElementById('studentNudgeMessage'),
+    studentNudgeDismissBtn: document.getElementById('studentNudgeDismissBtn')
 };
 
 // ============================================================
@@ -234,11 +245,18 @@ function connectSocket() {
 
     // Private attention nudge from teacher
     state.socket.on('attention-nudge', (data) => {
-        showReactionBubble(data.message || '👋 Your teacher wants you to pay attention!');
+        playAlertSound();
+        if (el.studentNudgeMessage) {
+            el.studentNudgeMessage.textContent = data.message || 'Please focus on the screen.';
+        }
+        if (el.studentNudgeOverlay) {
+            el.studentNudgeOverlay.classList.remove('hidden');
+            el.studentNudgeOverlay.classList.remove('dismissing');
+        }
         // Also flash the page border briefly
-        document.body.style.outline = '4px solid #f59e0b';
-        document.body.style.outlineOffset = '-4px';
-        setTimeout(() => { document.body.style.outline = ''; }, 2500);
+        document.body.style.outline = '5px solid #f97316';
+        document.body.style.outlineOffset = '-5px';
+        setTimeout(() => { document.body.style.outline = ''; }, 3000);
     });
 }
 
@@ -404,17 +422,126 @@ function handleRoomJoined(data) {
     showLoading(false);
     updateStatus(true, `Room ${data.room_code}`);
 
-    // Existing participants will be shown when LiveKit connects and
-    // fires ParticipantConnected / TrackSubscribed events.
-    // No need to create UI tiles here — LiveKit identity differs from socket SID.
+    // Run environment check, then calibration, then connect to video
+    runPreSessionSetup().then(() => {
+        // Request LiveKit token from backend
+        showLoading(true, 'Connecting to video server...');
+        state.socket.emit('get-livekit-token');
 
-    // Request LiveKit token from backend
-    showLoading(true, 'Connecting to video server...');
-    state.socket.emit('get-livekit-token');
+        // Start periodic score submission
+        state.submitInterval = setInterval(submitScore, 2000);
+        setTimeout(submitScore, 500);
+    });
+}
 
-    // Start periodic score submission
-    state.submitInterval = setInterval(submitScore, 2000);
-    setTimeout(submitScore, 500);
+/**
+ * Pre-session setup: environment check → calibration.
+ * Shows overlays as needed, then resolves when both steps are done.
+ */
+async function runPreSessionSetup() {
+    // --- Step 1: Environment Check ---
+    if (state.detector) {
+        // Wait a moment for camera to stabilize before checking
+        await new Promise(r => setTimeout(r, 1000));
+        const warnings = state.detector.checkEnvironment();
+
+        if (warnings.length > 0) {
+            await showEnvironmentWarnings(warnings);
+        }
+    }
+
+    // --- Step 2: Calibration ---
+    if (state.detector) {
+        await runCalibration();
+    }
+}
+
+/**
+ * Display environment warnings overlay and wait for user to dismiss.
+ */
+function showEnvironmentWarnings(warnings) {
+    return new Promise(resolve => {
+        if (!el.envWarningOverlay || !el.envWarningsList) {
+            resolve();
+            return;
+        }
+
+        el.envWarningsList.innerHTML = warnings.map(w => `
+            <div class="env-warning-card ${w.severity || 'warning'}">
+                <span class="warning-message">${w.message}</span>
+                <span class="warning-suggestion">${w.suggestion || ''}</span>
+            </div>
+        `).join('');
+
+        el.envWarningOverlay.classList.remove('hidden');
+
+        const dismiss = () => {
+            el.envWarningOverlay.classList.add('hidden');
+            el.envWarningDismissBtn.removeEventListener('click', dismiss);
+            resolve();
+        };
+        el.envWarningDismissBtn.addEventListener('click', dismiss);
+    });
+}
+
+/**
+ * Run 5-second calibration with animated overlay.
+ */
+function runCalibration() {
+    return new Promise(resolve => {
+        if (!el.calibrationOverlay || !state.detector) {
+            resolve();
+            return;
+        }
+
+        const CALIBRATION_MS = 5000;
+        const RING_CIRCUMFERENCE = 339.292; // 2 * PI * 54
+
+        // Show overlay
+        el.calibrationOverlay.classList.remove('hidden');
+        el.calibrationTimer.textContent = '5';
+        if (el.calibrationRingProgress) {
+            el.calibrationRingProgress.style.strokeDashoffset = RING_CIRCUMFERENCE;
+        }
+
+        // Countdown timer display
+        let secondsLeft = 5;
+        const countdownInterval = setInterval(() => {
+            secondsLeft--;
+            if (secondsLeft >= 0) {
+                el.calibrationTimer.textContent = secondsLeft;
+            }
+        }, 1000);
+
+        // Wire progress callback → ring animation
+        state.detector.onCalibrationProgress = (progress) => {
+            if (el.calibrationRingProgress) {
+                const offset = RING_CIRCUMFERENCE * (1 - progress);
+                el.calibrationRingProgress.style.strokeDashoffset = offset;
+            }
+        };
+
+        // Wire completion callback
+        state.detector.onCalibrationComplete = (baseline) => {
+            clearInterval(countdownInterval);
+            console.log('[Calibration] Complete — baseline:', baseline);
+
+            // Brief success feedback
+            el.calibrationTimer.textContent = '✓';
+            el.calibrationTimer.style.color = 'var(--success)';
+
+            setTimeout(() => {
+                el.calibrationOverlay.classList.add('hidden');
+                el.calibrationTimer.style.color = '';
+                state.detector.onCalibrationProgress = null;
+                state.detector.onCalibrationComplete = null;
+                resolve();
+            }, 600);
+        };
+
+        // Start the calibration in the detector
+        state.detector.startCalibration(CALIBRATION_MS);
+    });
 }
 
 async function handleLivekitToken(data) {
@@ -988,25 +1115,47 @@ function showLoading(show, text) {
 function onMetricsUpdate(metrics) {
     const pct = Math.round(metrics.attention_score * 100);
 
+    // Multi-state color mapping
+    const STATUS_COLORS = {
+        'Focused': '#22c55e',
+        'Partially Attentive': '#f59e0b',
+        'Distracted': '#ef4444',
+        'Drowsy': '#fb923c',
+        'Absent': '#94a3b8',
+        'Phone Use': '#c084fc',
+        'No Face Detected': '#94a3b8'
+    };
+    const STATUS_CLASSES = {
+        'Focused': '',
+        'Partially Attentive': 'partial',
+        'Distracted': 'distracted',
+        'Drowsy': 'drowsy',
+        'Absent': 'absent',
+        'Phone Use': 'phone-use',
+        'No Face Detected': 'absent'
+    };
+
+    const color = STATUS_COLORS[metrics.status] || '#22c55e';
+    const badgeClass = STATUS_CLASSES[metrics.status] || '';
+
     // Score ring
     const degrees = (pct / 100) * 360;
-    let color = '#22c55e';
-    if (metrics.status === 'Partially Attentive') color = '#f59e0b';
-    else if (metrics.status === 'Distracted') color = '#ef4444';
-
     el.scoreRing.style.background = `conic-gradient(${color} 0deg, ${color} ${degrees}deg, #1e1e30 ${degrees}deg)`;
     el.scoreValue.textContent = `${pct}%`;
     el.statusBadge.textContent = metrics.status;
     el.statusBadge.className = 'status-badge';
-    if (metrics.status === 'Partially Attentive') el.statusBadge.classList.add('partial');
-    else if (metrics.status === 'Distracted') el.statusBadge.classList.add('distracted');
+    if (badgeClass) el.statusBadge.classList.add(badgeClass);
 
-    // Local badge
+    // Local video tile badge
     el.localAttentionBadge.textContent = `${pct}%`;
     el.localAttentionBadge.className = 'attention-badge';
     if (pct >= 70) el.localAttentionBadge.classList.add('focused');
     else if (pct >= 40) el.localAttentionBadge.classList.add('partial');
     else el.localAttentionBadge.classList.add('distracted');
+    // Override with state-specific class if drowsy/absent/phone
+    if (['drowsy', 'absent', 'phone-use'].includes(badgeClass)) {
+        el.localAttentionBadge.className = `attention-badge ${badgeClass}`;
+    }
 
     // Metrics
     el.gazeValue.textContent = `${Math.round(metrics.gaze_score * 100)}%`;
@@ -1248,6 +1397,22 @@ function init() {
 
     // Hide share screen button by default (teacher must grant permission)
     el.shareScreenBtn.classList.add('hidden');
+
+    // Student nudge overlay dismiss
+    if (el.studentNudgeDismissBtn) {
+        el.studentNudgeDismissBtn.addEventListener('click', () => {
+            if (el.studentNudgeOverlay) {
+                el.studentNudgeOverlay.classList.add('dismissing');
+                setTimeout(() => {
+                    el.studentNudgeOverlay.classList.add('hidden');
+                    el.studentNudgeOverlay.classList.remove('dismissing');
+                }, 300);
+            }
+            if (state.socket) {
+                state.socket.emit('nudge-acknowledged');
+            }
+        });
+    }
 
     // Hand raise & reactions
     el.handRaiseBtn.addEventListener('click', toggleHandRaise);

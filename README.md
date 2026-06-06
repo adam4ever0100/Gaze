@@ -29,6 +29,7 @@ You can try out the live version of Gaze here:
 - [System Architecture](#-system-architecture)
 - [Features](#-features)
 - [Attention Score Algorithm](#-attention-score-algorithm)
+- [Comparison with Academic Approaches](#-comparison-with-academic-approaches)
 - [Technology Stack](#-technology-stack)
 - [Installation & Setup](#-installation--setup)
 - [Usage](#-usage)
@@ -207,25 +208,72 @@ The attention score is computed from **4 weighted components**, each derived fro
 | **Eye Openness** | 25% | Eye aspect ratio (EAR) — open eyes = alert, droopy = fatigued |
 | **Face Presence** | 10% | Binary — face detected in frame |
 
-### Classification Thresholds
+### Multi-Factor Classification (5 States)
 
-| Status | Score Range | Description |
-|--------|------------|-------------|
-| 🟢 **Focused** | ≥ 70% | Student is actively engaged |
-| 🟡 **Partial** | 40% – 69% | Some attention, may be drifting |
-| 🔴 **Distracted** | < 40% | Student is not paying attention |
+The system goes beyond simple thresholds — it uses **multi-factor state detection** combining score, EAR, blink rate, and head pose:
+
+| Status | Detection Method | Visual |
+|--------|-----------------|--------|
+| 🟢 **Focused** | Composite score ≥ 70% | Green badge |
+| 🟡 **Partially Attentive** | Score 40% – 69% | Yellow badge |
+| 🔴 **Distracted** | Score < 40%, looking away | Red badge |
+| 🟠 **Drowsy** | Low EAR + high blink rate + head drooping (≥ 2/3 signals) | Orange badge |
+| ⚪ **Absent** | No face detected for ≥ 3 seconds | Gray badge |
+| 🟣 **Phone Use** | Head pitched > 15° downward + low score | Purple badge |
+
+### Per-Student Calibration
+
+Each student runs a **5-second calibration** when joining a session. The system captures their personal baseline for gaze center, head pose, and eye openness, then scores deviations from _their_ neutral position rather than global thresholds.
+
+### Adaptive Per-Student Thresholds
+
+The server maintains a **rolling 5-minute baseline** per student. Distraction alerts are triggered when a student drops **20% below their personal average**, not just below a fixed threshold — so naturally high-scorers and lower-scorers both get appropriate alerts.
 
 ### Processing Pipeline
 
 ```
 Camera Frame → MediaPipe Face Mesh → 468 Landmarks
-    → Gaze Vector Calculation (iris position)
-    → Head Pose Estimation (Euler angles)
-    → Eye Aspect Ratio (blink detection)
+    → Per-Student Calibration Baseline (5-sec on join)
+    → Gaze Vector Calculation (iris position vs. calibrated center)
+    → Head Pose Estimation (PnP → yaw, pitch, roll)
+    → Eye Aspect Ratio (blink detection + drowsy check)
     → Weighted Score = 0.35×Gaze + 0.30×Head + 0.25×Eye + 0.10×Face
-    → Classify: Focused | Partial | Distracted
-    → Send score to server via Socket.IO
+    → Multi-Factor Classification: Focused | Partial | Distracted | Drowsy | Absent | Phone Use
+    → Adaptive alert check (vs. personal rolling baseline)
+    → Send to server via Socket.IO
 ```
+
+### Environment Quality Check
+
+Before calibration, the system analyzes the camera feed for:
+- **Lighting** — too dark or overexposed
+- **Contrast** — low image contrast
+- **Distance** — face too far or too close
+- **Camera angle** — camera not at eye level
+
+Students see actionable suggestions before the session begins.
+
+---
+
+## 📊 Comparison with Academic Approaches
+
+| Dimension | **Gaze** (This System) | **Dlib + SVM** (Ahuja et al. 2019) | **OpenFace + LSTM** (Whitehill et al. 2014) | **Commercial (Proctorio)** |
+|-----------|----------------------|----------------------|------------------------|--------------------------|
+| **Detection model** | MediaPipe Face Mesh (468 landmarks) | Dlib 68-point + HOG | OpenFace AU detection | Proprietary |
+| **Classification** | Multi-factor, 5 states | Binary (attentive/not) | 4-level engagement | Binary |
+| **Calibration** | Per-student, 5-sec on join | None | None | Manual room scan |
+| **Adaptive thresholds** | Rolling 5-min baseline per student | Fixed | Fixed | Fixed |
+| **Processing** | Client-side (browser) | Server-side | Server-side | Cloud |
+| **Privacy** | No video leaves device | Video to server | Video to server | Video to cloud |
+| **Temporal analysis** | Fatigue onset, recovery, profiles | None | Engagement over time | None |
+| **Head pose method** | PnP from 3D model points | Euler from 68 pts | OpenFace built-in | N/A |
+| **Drowsy detection** | EAR + blink rate + head droop | Not supported | Partially (AU45) | Not supported |
+| **Phone use detection** | Head pitch + score drop | Not supported | Not supported | Not supported |
+| **Real-time video** | LiveKit SFU + WebRTC | Not included | Not included | Zoom plugin |
+| **Environment check** | Lighting / contrast / distance | None | None | Room scan |
+| **Open source** | ✅ Yes | Partially | ✅ Yes | ❌ No |
+
+> **Key differentiators**: Gaze is the only system that combines (1) client-side privacy-preserving processing, (2) per-student calibration with adaptive thresholds, (3) multi-factor 5-state classification including drowsy and phone-use detection, and (4) built-in video conferencing — all in a single open-source package.
 
 ---
 

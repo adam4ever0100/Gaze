@@ -198,6 +198,9 @@ function connectSocket() {
     state.socket.on('peer-left', handlePeerLeft);
     state.socket.on('score-update', handleScoreUpdate);
     state.socket.on('distraction-alert', handleDistractionAlert);
+    state.socket.on('student-nudge-acknowledged', (data) => {
+        showAlert(`🟢 ${data.student_name} acknowledged the attention reminder`, 'success');
+    });
     state.socket.on('room-closed', () => {
         showAlert('Session ended', 'info');
         showView('login');
@@ -592,13 +595,25 @@ function handleScoreUpdate(data) {
         state.distributionChart.data.datasets[0].data = [
             counts.focused || 0,
             counts.partial || 0,
-            counts.distracted || 0
+            counts.distracted || 0,
+            counts.drowsy || 0,
+            counts.absent || 0,
+            counts.phone_use || 0
         ];
         state.distributionChart.update('none');
     }
 
     // Update students table
     state.cachedStudents = dashboard.students || [];
+
+    // Enrich student objects with per-student baseline/deviation from score-update
+    if (data.student_name && data.personal_baseline !== undefined) {
+        const s = state.cachedStudents.find(st => st.name === data.student_name);
+        if (s) {
+            s.personal_baseline = data.personal_baseline;
+            s.deviation_from_baseline = data.deviation_from_baseline;
+        }
+    }
 
     // Sync score_only flags from dashboard data into scoreOnlyStudents set
     for (const s of state.cachedStudents) {
@@ -609,6 +624,9 @@ function handleScoreUpdate(data) {
     }
 
     updateStudentsTable(state.cachedStudents);
+
+    // Update remote video tile glows and badges
+    updateVideoTileStates(state.cachedStudents);
 
     // Update avatar score rings for privacy-mode students
     updateAvatarScores();
@@ -631,7 +649,10 @@ function updateStudentsTable(students) {
     el.studentsTableBody.innerHTML = filtered.map(s => {
         const scorePercent = Math.round(s.score * 100);
         const statusClass = s.status === 'Focused' ? 'badge-success' :
-            s.status === 'Distracted' ? 'badge-danger' : 'badge-warning';
+            s.status === 'Distracted' ? 'badge-danger' :
+            s.status === 'Drowsy' ? 'badge-drowsy' :
+            s.status === 'Absent' ? 'badge-absent' :
+            s.status === 'Phone Use' ? 'badge-phone' : 'badge-warning';
         const activityDot = s.active ? 'active' : 'inactive';
         const networkQuality = state.networkStats[s.sid] || 'unknown';
         const networkIcon = networkQuality === 'good' ? '🟢' :
@@ -641,9 +662,19 @@ function updateStudentsTable(students) {
         const nameSafe = escapeHtml(s.name);
         const privacyBadge = s.score_only ? ' <span class="score-only-badge">🔒</span>' : '';
 
+        // Per-student baseline deviation indicator
+        let baselineHtml = '';
+        if (s.personal_baseline && s.personal_baseline > 0) {
+            const dev = s.deviation_from_baseline || 0;
+            const devPct = Math.round(dev * 100);
+            const arrow = devPct >= 0 ? '↑' : '↓';
+            const devColor = devPct >= -5 ? 'var(--success)' : devPct >= -15 ? 'var(--warning)' : 'var(--danger)';
+            baselineHtml = `<span class="baseline-indicator" style="color:${devColor}" title="Personal avg: ${Math.round(s.personal_baseline * 100)}%">${arrow}${Math.abs(devPct)}%</span>`;
+        }
+
         return `
             <tr class="${hasHand ? 'hand-raised-row' : ''}">
-                <td><span class="student-name">${nameSafe}${privacyBadge}</span></td>
+                <td><span class="student-name">${nameSafe}${privacyBadge}</span>${baselineHtml}</td>
                 <td>
                     <div class="score-bar-wrapper">
                         <div class="score-bar" style="width: ${scorePercent}%;
@@ -751,10 +782,10 @@ function initDistributionChart() {
     state.distributionChart = new Chart(ctx, {
         type: 'doughnut',
         data: {
-            labels: ['Focused', 'Partial', 'Distracted'],
+            labels: ['Focused', 'Partial', 'Distracted', 'Drowsy', 'Absent', 'Phone Use'],
             datasets: [{
-                data: [0, 0, 0],
-                backgroundColor: ['#22c55e', '#f59e0b', '#ef4444'],
+                data: [0, 0, 0, 0, 0, 0],
+                backgroundColor: ['#22c55e', '#f59e0b', '#ef4444', '#fb923c', '#94a3b8', '#c084fc'],
                 borderWidth: 0
             }]
         },
@@ -765,7 +796,7 @@ function initDistributionChart() {
             plugins: {
                 legend: {
                     position: 'bottom',
-                    labels: { color: '#888', padding: 12, font: { size: 12 } }
+                    labels: { color: '#888', padding: 12, font: { size: 11 } }
                 }
             }
         }
@@ -863,6 +894,7 @@ async function loadSessionTab(tab, sessionId) {
             case 'ai-summary': endpoint = `${TEACHER_BASE}/sessions/${sessionId}/ai-summary`; break;
             case 'annotations': endpoint = `${TEACHER_BASE}/sessions/${sessionId}/annotations`; break;
             case 'timeline': endpoint = `${TEACHER_BASE}/sessions/${sessionId}/analytics`; break;
+            case 'temporal': endpoint = `${TEACHER_BASE}/sessions/${sessionId}/temporal-analysis`; break;
         }
 
         const res = await fetch(endpoint);
@@ -874,6 +906,7 @@ async function loadSessionTab(tab, sessionId) {
             case 'ai-summary': renderAISummaryTab(data); break;
             case 'annotations': renderAnnotationsTab(data); break;
             case 'timeline': renderTimelineTab(data); break;
+            case 'temporal': renderTemporalTab(data); break;
         }
     } catch (e) {
         el.modalBody.innerHTML = '<div class="modal-loading">Error loading data</div>';
@@ -1040,6 +1073,106 @@ function renderTimelineTab(data) {
     });
 }
 
+function renderTemporalTab(data) {
+    if (!data || data.error) {
+        el.modalBody.innerHTML = '<div class="modal-loading">Temporal analysis not available for this session</div>';
+        return;
+    }
+
+    const insights = (data.insights || []).map(i => `<li>${escapeHtml(i)}</li>`).join('');
+    const students = (data.students || []).map(s => {
+        const p = s.profile || {};
+        const profileEmoji = {
+            'steady': '🟢 Steady',
+            'early-fader': '🔴 Early Fader',
+            'late-bloomer': '🟡 Late Bloomer',
+            'fluctuating': '🟠 Fluctuating',
+            'insufficient_data': '⚪ Insufficient Data'
+        };
+        return `
+            <tr>
+                <td>${escapeHtml(s.name)}</td>
+                <td>${profileEmoji[p.profile] || p.profile || '—'}</td>
+                <td>${p.longest_focus_span_min || 0}m</td>
+                <td>${p.total_distracted_pct || 0}%</td>
+                <td>${p.recovery_count || 0}</td>
+                <td>${p.fatigue_events || 0}</td>
+            </tr>
+        `;
+    }).join('');
+
+    // Class trends chart data
+    const trends = data.class_trends || [];
+    const dropMin = data.attention_drop_minute;
+
+    let trendsChart = '';
+    if (trends.length > 0) {
+        trendsChart = `
+            <h4 style="margin: 20px 0 10px;">📈 Class Attention Over Time</h4>
+            <canvas id="temporalTrendsChart" style="height:200px"></canvas>
+        `;
+    }
+
+    el.modalBody.innerHTML = `
+        ${insights.length ? `
+            <div class="temporal-insights">
+                <h4>🔍 Insights</h4>
+                <ul class="ai-list">${insights}</ul>
+            </div>
+        ` : ''}
+
+        ${dropMin !== null ? `
+            <div class="temporal-drop-alert">
+                ⚠️ Class attention drops lowest around <strong>minute ${Math.round(dropMin)}</strong>
+            </div>
+        ` : ''}
+
+        ${trendsChart}
+
+        <h4 style="margin: 20px 0 10px;">👤 Student Engagement Profiles</h4>
+        <table class="students-table compact">
+            <thead><tr>
+                <th>Name</th><th>Profile</th><th>Longest Focus</th>
+                <th>Distracted %</th><th>Recoveries</th><th>Fatigue Events</th>
+            </tr></thead>
+            <tbody>${students}</tbody>
+        </table>
+    `;
+
+    // Render trends chart if data exists
+    if (trends.length > 0) {
+        setTimeout(() => {
+            const ctx = document.getElementById('temporalTrendsChart');
+            if (!ctx) return;
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: trends.map(t => `${t.minute_start}-${t.minute_end}m`),
+                    datasets: [{
+                        label: 'Avg Attention',
+                        data: trends.map(t => Math.round(t.avg_score * 100)),
+                        backgroundColor: trends.map(t =>
+                            t.avg_score >= 0.7 ? 'rgba(34,197,94,0.6)' :
+                            t.avg_score >= 0.4 ? 'rgba(245,158,11,0.6)' : 'rgba(239,68,68,0.6)'
+                        ),
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#888' } },
+                        x: { grid: { display: false }, ticks: { color: '#888' } }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }, 100);
+    }
+}
+
+
 // ============================================================
 // Export
 // ============================================================
@@ -1098,19 +1231,60 @@ function addRemoteVideoTile(identity, name, livekitTrack) {
     tile.id = `teacher-tile-${identity}`;
 
     if (isScoreOnly) {
-        // Score-Only student: show 3D avatar instead of video
+        // Score-Only student: show dynamic SVG avatar instead of video
         const avatarIndex = getAvatarIndex(name);
+        const AVATAR_GRADIENTS = [
+            { start: '#a78bfa', end: '#4f46e5' }, // Indigo/Purple
+            { start: '#34d399', end: '#0f766e' }, // Emerald/Teal
+            { start: '#fb7185', end: '#6d28d9' }, // Rose/Violet
+            { start: '#fbbf24', end: '#c2410c' }, // Amber/Orange
+            { start: '#38bdf8', end: '#1d4ed8' }, // Sky/Blue
+            { start: '#f472b6', end: '#be185d' }  // Fuchsia/Pink
+        ];
+        const grad = AVATAR_GRADIENTS[(avatarIndex - 1) % AVATAR_GRADIENTS.length];
+
         tile.innerHTML = `
             <video autoplay playsinline style="display:none"></video>
-            <div class="avatar-overlay" id="avatar-${identity}">
-                <div class="avatar-ring" data-score="0">
+            <span class="tile-attention-badge" id="tile-badge-${identity}">--%</span>
+            <div class="absent-mask">
+                <div class="absent-mask-icon">🚫</div>
+                <div class="absent-mask-text">Absent</div>
+            </div>
+            <div class="avatar-overlay" id="avatar-${identity}" data-status="Focused">
+                <div class="avatar-ring">
                     <div class="avatar-circle">
-                        <img class="avatar-img" src="avatars/avatar_${avatarIndex}.png" alt="${escapeHtml(name)}" onerror="this.style.display='none';this.parentElement.innerHTML='<span class=\\'avatar-initials\\'>${escapeHtml(initials)}</span>'" />
+                        <svg class="avatar-svg" viewBox="0 0 100 100" width="100%" height="100%">
+                            <defs>
+                                <radialGradient id="faceGrad-${identity}" cx="50%" cy="50%" r="50%" fx="35%" fy="35%">
+                                    <stop offset="0%" stop-color="${grad.start}" />
+                                    <stop offset="100%" stop-color="${grad.end}" />
+                                </radialGradient>
+                            </defs>
+                            <circle cx="50" cy="50" r="40" fill="url(#faceGrad-${identity})" />
+                            
+                            <g class="avatar-eyes">
+                                <g class="eyes-open">
+                                    <circle class="eye-bg" cx="35" cy="45" r="6" fill="white" />
+                                    <circle class="pupil" cx="35" cy="45" r="2.5" fill="#0f172a" />
+                                </g>
+                                <g class="eyes-open">
+                                    <circle class="eye-bg" cx="65" cy="45" r="6" fill="white" />
+                                    <circle class="pupil" cx="65" cy="45" r="2.5" fill="#0f172a" />
+                                </g>
+                                <path class="eyes-closed" d="M 29,45 Q 35,51 41,45" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" />
+                                <path class="eyes-closed" d="M 59,45 Q 65,51 71,45" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" />
+                            </g>
+                            
+                            <g class="avatar-mouths">
+                                <path class="mouth mouth-smile" d="M 36,62 Q 50,72 64,62" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" />
+                                <path class="mouth mouth-neutral" d="M 38,64 L 62,64" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" />
+                                <path class="mouth mouth-frown" d="M 38,68 Q 50,60 62,68" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" />
+                                <ellipse class="mouth mouth-yawn" cx="50" cy="65" rx="5" ry="8" fill="white" />
+                            </g>
+                        </svg>
                     </div>
                 </div>
-                <span class="avatar-name">${escapeHtml(name)}</span>
-                <span class="avatar-score-text" id="avatar-score-${identity}">0%</span>
-                <span class="avatar-privacy-badge">🔒 Score Only</span>
+                <div class="avatar-score-text" id="avatar-score-${identity}">--%</div>
             </div>
             <div class="video-label-teacher">
                 <span class="video-name-teacher">${escapeHtml(name)}</span>
@@ -1120,6 +1294,11 @@ function addRemoteVideoTile(identity, name, livekitTrack) {
     } else {
         tile.innerHTML = `
             <video autoplay playsinline></video>
+            <span class="tile-attention-badge" id="tile-badge-${identity}">--%</span>
+            <div class="absent-mask">
+                <div class="absent-mask-icon">🚫</div>
+                <div class="absent-mask-text">Absent</div>
+            </div>
             <div class="video-label-teacher">
                 <span class="video-name-teacher">${escapeHtml(name)}</span>
                 <span class="network-badge" id="net-${identity}">⚪</span>
@@ -1173,6 +1352,36 @@ function getInitials(name) {
 }
 
 /**
+ * Update glows, scores, and status badges on all video tiles (normal and score-only).
+ * Called whenever a score-update arrives.
+ */
+function updateVideoTileStates(students) {
+    if (!students) return;
+
+    for (const student of students) {
+        const percent = Math.round(student.score * 100);
+        const status = student.status || 'Focused';
+
+        // Try both SID and LiveKit identity format
+        const identities = [student.sid, `student-${student.sid}`];
+        for (const identity of identities) {
+            const tile = document.getElementById(`teacher-tile-${identity}`);
+            const badge = document.getElementById(`tile-badge-${identity}`);
+
+            if (tile) {
+                // Apply data-status for border glows
+                tile.setAttribute('data-status', status);
+            }
+
+            if (badge) {
+                badge.textContent = `${percent}%`;
+                badge.setAttribute('data-status', status);
+            }
+        }
+    }
+}
+
+/**
  * Update avatar score rings for score-only students.
  * Called whenever score-update arrives.
  */
@@ -1183,8 +1392,15 @@ function updateAvatarScores() {
         // Try both SID and LiveKit identity format
         const identities = [student.sid, `student-${student.sid}`];
         for (const identity of identities) {
+            const overlay = document.getElementById(`avatar-${identity}`);
             const ring = document.querySelector(`#avatar-${identity} .avatar-ring`);
             const scoreText = document.getElementById(`avatar-score-${identity}`);
+            
+            if (!overlay) continue;
+
+            // Update facial expression states via data attribute
+            overlay.setAttribute('data-status', student.status || 'Focused');
+
             if (!ring) continue;
 
             const percent = Math.round(student.score * 100);

@@ -41,7 +41,7 @@ import time
 import string
 import random
 from datetime import datetime
-from collections import defaultdict
+from collections import defaultdict, deque
 from functools import wraps
 
 from flask import Flask, jsonify, request, send_from_directory, send_file
@@ -268,7 +268,10 @@ def handle_join_room(data):
         'status': 'Connecting',
         'last_update': time.time(),
         'history': [],
-        'score_only': score_only
+        'score_only': score_only,
+        # Adaptive per-student baseline: rolling 5-min average
+        'rolling_scores': deque(maxlen=150),  # ~5 min at 2s intervals
+        'personal_baseline': 0.0,
     }
 
     sid_to_room[request.sid] = room_code
@@ -422,6 +425,29 @@ def handle_nudge_student(data):
     if target_sid and target_sid in room['students']:
         emit('attention-nudge', {'message': message}, to=target_sid)
         print(f"Teacher nudged student {target_sid} in room {room_code}")
+
+
+@socketio.on('nudge-acknowledged')
+@require_room_member
+def handle_nudge_acknowledged(data=None):
+    """Student acknowledges a private attention nudge."""
+    room_code = sid_to_room.get(request.sid)
+    room = rooms.get(room_code)
+    if not room:
+        return
+
+    student = room['students'].get(request.sid)
+    if not student:
+        return
+
+    # Notify the teacher that the student acknowledged the nudge
+    teacher_sid = room.get('teacher_sid')
+    if teacher_sid:
+        emit('student-nudge-acknowledged', {
+            'student_name': student['name'],
+            'sid': request.sid
+        }, to=teacher_sid)
+        print(f"Student {student['name']} acknowledged nudge in room {room_code}")
 
 
 # ============================================================
@@ -673,6 +699,13 @@ def handle_attention_score(data):
     student['last_update'] = time.time()
     student['history'].append((time.time(), score))
 
+    # Update adaptive per-student rolling baseline
+    student['rolling_scores'].append(score)
+    if len(student['rolling_scores']) >= 10:
+        student['personal_baseline'] = round(
+            sum(student['rolling_scores']) / len(student['rolling_scores']), 3
+        )
+
     if len(student['history']) > 200:
         student['history'] = student['history'][-200:]
 
@@ -687,7 +720,11 @@ def handle_attention_score(data):
     )
 
     _update_class_history(room_code)
-    _check_alert(room_code, student['name'], score)
+    _check_alert(room_code, student, score)
+
+    # Compute deviation from personal baseline
+    baseline = student.get('personal_baseline', 0)
+    deviation = round(score - baseline, 3) if baseline > 0 else 0
 
     # Broadcast update to teacher dashboard
     emit('score-update', {
@@ -695,14 +732,28 @@ def handle_attention_score(data):
         'sid': request.sid,
         'score': round(score, 3),
         'status': status,
+        'personal_baseline': baseline,
+        'deviation_from_baseline': deviation,
         'dashboard': _get_dashboard_data(room_code)
     }, room=room_code)
 
 
-def _check_alert(room_code, student_name, score):
-    if score >= ALERT_THRESHOLD:
+def _check_alert(room_code, student, score):
+    """Check if a distraction alert should be sent.
+    Uses per-student adaptive baseline if available."""
+    # Use personal baseline if the student has established one,
+    # otherwise fall back to the global threshold
+    baseline = student.get('personal_baseline', 0)
+    if baseline > 0.3:
+        # Alert if score is >20% below personal baseline
+        alert_trigger = baseline - 0.20
+    else:
+        alert_trigger = ALERT_THRESHOLD
+
+    if score >= alert_trigger:
         return
 
+    student_name = student['name']
     key = (room_code, student_name)
     now = time.time()
 
@@ -713,10 +764,16 @@ def _check_alert(room_code, student_name, score):
 
     room = rooms.get(room_code)
     if room:
+        deviation_msg = ''
+        if baseline > 0:
+            drop_pct = round((1 - score / baseline) * 100)
+            deviation_msg = f' (↓{drop_pct}% from their avg)'
+
         emit('distraction-alert', {
             'student_name': student_name,
             'score': round(score * 100, 1),
-            'message': f'{student_name} needs attention ({round(score * 100)}%)'
+            'personal_baseline': round(baseline * 100, 1),
+            'message': f'{student_name} needs attention ({round(score * 100)}%){deviation_msg}'
         }, room=room['teacher_sid'])
 
 
@@ -828,7 +885,10 @@ def _get_dashboard_data(room_code):
     status_counts = {
         'focused': sum(1 for s in active_students if s['status'] == 'Focused' and s['active']),
         'partial': sum(1 for s in active_students if s['status'] == 'Partially Attentive' and s['active']),
-        'distracted': sum(1 for s in active_students if s['status'] == 'Distracted' and s['active'])
+        'distracted': sum(1 for s in active_students if s['status'] == 'Distracted' and s['active']),
+        'drowsy': sum(1 for s in active_students if s['status'] == 'Drowsy' and s['active']),
+        'absent': sum(1 for s in active_students if s['status'] == 'Absent' and s['active']),
+        'phone_use': sum(1 for s in active_students if s['status'] == 'Phone Use' and s['active'])
     }
 
     return {
@@ -1046,6 +1106,21 @@ def submit_score():
 
 
 # ============================================================
+# Temporal Analysis Endpoint
+# ============================================================
+
+@app.route('/sessions/<int:session_id>/temporal-analysis', methods=['GET'])
+def get_temporal_analysis_route(session_id):
+    """Return temporal pattern analysis for a session."""
+    try:
+        from backend.temporal_analysis import get_temporal_analysis
+        analysis = get_temporal_analysis(session_id)
+        return jsonify(analysis)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ============================================================
 # PDF Report Generation
 # ============================================================
 
@@ -1074,6 +1149,33 @@ def download_pdf_report(session_id):
 
     import io as _io
     import time as _time
+    from backend.temporal_analysis import get_temporal_analysis
+    from backend.database import get_db, _fetchall, _PH
+
+    temporal_data = get_temporal_analysis(session_id)
+
+    with get_db() as conn:
+        status_counts_db = _fetchall(conn,
+            f"""SELECT student_id, status, COUNT(*) as count
+                FROM attention_records
+                WHERE session_id = {_PH}
+                GROUP BY student_id, status""",
+            (session_id,)
+        )
+        students_db = _fetchall(conn,
+            f"SELECT id, name FROM students WHERE session_id = {_PH}",
+            (session_id,)
+        )
+
+    student_id_map = {std['name']: std['id'] for std in students_db}
+    student_status_counts = {}
+    for row in status_counts_db:
+        s_id = row['student_id']
+        status = row['status']
+        count = row['count']
+        if s_id not in student_status_counts:
+            student_status_counts[s_id] = {}
+        student_status_counts[s_id][status] = count
 
     # ── Helpers ─────────────────────────────────────────────
     def fmt_ts(ts):
@@ -1131,6 +1233,8 @@ def download_pdf_report(session_id):
     footer_sty   = sty('F', fontSize=8, textColor=GREY,        alignment=TA_CENTER)
     center_sty   = sty('C', fontSize=9, textColor=DARK,        alignment=TA_CENTER)
     bold_sty     = sty('Bd', fontSize=9, textColor=DARK,       fontName='Helvetica-Bold')
+    card_val_sty = sty('CV', fontSize=20, leading=22, fontName='Helvetica-Bold', alignment=TA_CENTER)
+    card_lbl_sty = sty('CL', fontSize=8, leading=10, textColor=GREY, alignment=TA_CENTER)
 
     elements = []
 
@@ -1170,8 +1274,13 @@ def download_pdf_report(session_id):
     dip_count  = ai_summary.get('dip_count', 0) if ai_summary else 0
 
     def card(label, value, color=DARK):
-        return [Paragraph(f"<b><font size=20 color='#{color.hexval()[2:]}'>{value}</font></b>", center_sty),
-                Paragraph(f"<font size=8 color='#6b7280'>{label}</font>", center_sty)]
+        val_sty = ParagraphStyle(
+            'Val_' + label.replace(' ', ''),
+            parent=card_val_sty,
+            textColor=color
+        )
+        return [Paragraph(value, val_sty),
+                Paragraph(label, card_lbl_sty)]
 
     cw = col_w / 4 - 2
     cards_table = Table([
@@ -1179,42 +1288,56 @@ def download_pdf_report(session_id):
          card("Class Average", f"{avg_pct}%", score_color(avg_pct)),
          card("Peak Attention", f"{peak_pct}%", score_color(peak_pct)),
          card("Attention Dips", str(dip_count))]
-    ], colWidths=[cw, cw, cw, cw], rowHeights=[40])
+    ], colWidths=[cw, cw, cw, cw])
     cards_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), ROW_A),
         ('BOX',        (0, 0), (-1, -1), 0.5, colors.HexColor('#d1d5db')),
         ('INNERGRID',  (0, 0), (-1, -1), 0.5, colors.HexColor('#d1d5db')),
         ('VALIGN',     (0, 0), (-1, -1), 'MIDDLE'),
         ('ROUNDEDCORNERS', [4]),
-        ('TOPPADDING',    (0, 0), (-1, -1), 6),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING',    (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
     ]))
     elements.append(cards_table)
     elements.append(Spacer(1, 6 * mm))
 
     # ── STUDENT PERFORMANCE TABLE ─────────────────────────────
-    elements.append(Paragraph("Student Performance", h2_sty))
+    elements.append(Paragraph("Student Performance & Attention Breakdown", h2_sty))
     elements.append(HRFlowable(width=col_w, thickness=1, color=BASE, spaceAfter=4))
 
     if attendance and attendance.get('students'):
-        hdr = ['Student Name', 'Time in Session', 'Avg Attention', 'Grade',
-               'Focused', 'Partial', 'Distracted', 'Status']
+        hdr = ['Student Name', 'Duration', 'Avg Attn', 'Grade',
+               'Focused', 'Partial', 'Distracted', 'Drowsy', 'Phone', 'Absent', 'Status']
         rows = [hdr]
 
         for s in attendance['students']:
             s_avg = s.get('avg_attention', 0)
-            # Get focused/partial/distracted from summary students list
-            s_match = next((x for x in summary.get('students', []) if x['name'] == s['name']), None)
+            s_id = student_id_map.get(s['name'])
+            counts = student_status_counts.get(s_id, {}) if s_id else {}
+            total_records = sum(counts.values()) or 1
+            
+            focused_pct = round((counts.get('Focused', 0) / total_records) * 100, 1)
+            partial_pct = round((counts.get('Partially Attentive', 0) / total_records) * 100, 1)
+            distracted_pct = round((counts.get('Distracted', 0) / total_records) * 100, 1)
+            drowsy_pct = round((counts.get('Drowsy', 0) / total_records) * 100, 1)
+            phone_pct = round((counts.get('Phone Use', 0) / total_records) * 100, 1)
+            absent_pct = round((counts.get('Absent', 0) / total_records) * 100, 1)
+
             rows.append([
                 s['name'],
                 s.get('duration_formatted', '—'),
                 f"{s_avg}%",
                 grade(s_avg),
-                '—', '—', '—',   # placeholder — we don't have breakdown in attendance
-                '✓ Present' if s.get('was_present_at_end') else '✗ Left early'
+                f"{focused_pct}%",
+                f"{partial_pct}%",
+                f"{distracted_pct}%",
+                f"{drowsy_pct}%",
+                f"{phone_pct}%",
+                f"{absent_pct}%",
+                '✓ Present' if s.get('was_present_at_end') else '✗ Left'
             ])
 
-        cws = [120, 70, 65, 40, 45, 45, 55, 65]
+        cws = [85, 45, 40, 30, 40, 40, 45, 40, 40, 40, 45]
         st = Table(rows, colWidths=cws)
         ts = TableStyle([
             ('BACKGROUND',  (0, 0), (-1, 0), BASE),
@@ -1225,10 +1348,10 @@ def download_pdf_report(session_id):
             ('ALIGN',       (0, 0), (0, -1),  'LEFT'),
             ('VALIGN',      (0, 0), (-1, -1), 'MIDDLE'),
             ('GRID',        (0, 0), (-1, -1), 0.4, colors.HexColor('#d1d5db')),
-            ('TOPPADDING',  (0, 0), (-1, -1), 5),
-            ('BOTTOMPADDING',(0, 0), (-1, -1), 5),
+            ('TOPPADDING',  (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING',(0, 0), (-1, -1), 4),
         ])
-        # Alternating row colours
+        # Alternating row colours & specific column custom styles
         for i, row in enumerate(rows[1:], 1):
             bg = ROW_A if i % 2 == 0 else ROW_B
             ts.add('BACKGROUND', (0, i), (-1, i), bg)
@@ -1241,6 +1364,121 @@ def download_pdf_report(session_id):
     else:
         elements.append(Paragraph("No student data available.", body_sty))
 
+    elements.append(Spacer(1, 6 * mm))
+
+    # ── CLASS ATTENTION DISTRIBUTION ─────────────────────────
+    elements.append(Paragraph("Class Attention Distribution", h2_sty))
+    elements.append(HRFlowable(width=col_w, thickness=1, color=BASE, spaceAfter=4))
+    
+    total_class_records = sum(sum(c.values()) for c in student_status_counts.values()) or 1
+    class_status_totals = {}
+    for s_id, counts in student_status_counts.items():
+        for status, count in counts.items():
+            class_status_totals[status] = class_status_totals.get(status, 0) + count
+            
+    dist_hdr = ['Attention State', 'Description', 'Class Share %']
+    dist_rows = [dist_hdr]
+    
+    states_meta = [
+        ('Focused', 'Gaze on screen, head forward, eyes open', '#16a34a'),
+        ('Partially Attentive', 'Slight gaze deviation or temporary distraction', '#d97706'),
+        ('Distracted', 'Gaze off-screen or head turned away', '#dc2626'),
+        ('Drowsy', 'Low eye aspect ratio, high blink rate, or drooping head', '#f97316'),
+        ('Phone Use', 'Looking down at lap with head tilted down', '#8b5cf6'),
+        ('Absent', 'No face detected in the camera frame', '#6b7280'),
+    ]
+    
+    for state, desc, color_hex in states_meta:
+        count = class_status_totals.get(state, 0)
+        pct = round((count / total_class_records) * 100, 1)
+        dist_rows.append([
+            state,
+            desc,
+            f"{pct}%"
+        ])
+        
+    dist_table = Table(dist_rows, colWidths=[120, 270, 100])
+    dist_ts = TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), BASE),
+        ('TEXTCOLOR',  (0, 0), (-1, 0), WHITE),
+        ('FONTNAME',   (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE',   (0, 0), (-1, -1), 8),
+        ('GRID',       (0, 0), (-1, -1), 0.4, colors.HexColor('#d1d5db')),
+        ('VALIGN',     (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING',(0, 0), (-1, -1), 4),
+        ('ALIGN',      (0, 0), (-1, -1), 'LEFT'),
+        ('ALIGN',      (2, 0), (2, -1), 'CENTER'),
+    ])
+    
+    for i, (state, _, color_hex) in enumerate(states_meta, 1):
+        bg = ROW_A if i % 2 == 0 else ROW_B
+        dist_ts.add('BACKGROUND', (0, i), (-1, i), bg)
+        dist_ts.add('TEXTCOLOR', (0, i), (0, i), colors.HexColor(color_hex))
+        dist_ts.add('FONTNAME', (0, i), (0, i), 'Helvetica-Bold')
+        
+    dist_table.setStyle(dist_ts)
+    elements.append(dist_table)
+    elements.append(Spacer(1, 6 * mm))
+
+    # ── TEMPORAL ANALYSIS & ENGAGEMENT PROFILES ──────────────
+    elements.append(Paragraph("Temporal Analysis & Engagement Profiles", h2_sty))
+    elements.append(HRFlowable(width=col_w, thickness=1, color=BASE, spaceAfter=4))
+    
+    insights = temporal_data.get('insights', [])
+    if insights:
+        elements.append(Paragraph("<b>Class-wide Temporal Insights:</b>", body_sty))
+        for ins in insights:
+            elements.append(Paragraph(f"  • {ins}", body_sty))
+        elements.append(Spacer(1, 3 * mm))
+        
+    prof_hdr = ['Student Name', 'Engagement Profile', 'Longest Focus Span', 'Fatigue Drops', 'Self-Corrections']
+    prof_rows = [prof_hdr]
+    
+    for std_analysis in temporal_data.get('students', []):
+        prof = std_analysis.get('profile', {})
+        p_name = std_analysis.get('name', '—')
+        p_type = prof.get('profile', 'steady').replace('-', ' ').title()
+        p_span = f"{prof.get('longest_focus_span_min', 0.0)} mins"
+        p_fatigue = str(prof.get('fatigue_events', 0))
+        p_recovery = str(prof.get('recovery_count', 0))
+        
+        prof_rows.append([
+            p_name,
+            p_type,
+            p_span,
+            p_fatigue,
+            p_recovery
+        ])
+        
+    prof_table = Table(prof_rows, colWidths=[130, 110, 100, 75, 75])
+    prof_ts = TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), BASE),
+        ('TEXTCOLOR',  (0, 0), (-1, 0), WHITE),
+        ('FONTNAME',   (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE',   (0, 0), (-1, -1), 8),
+        ('GRID',       (0, 0), (-1, -1), 0.4, colors.HexColor('#d1d5db')),
+        ('VALIGN',     (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING',(0, 0), (-1, -1), 4),
+        ('ALIGN',      (0, 0), (-1, -1), 'CENTER'),
+        ('ALIGN',      (0, 0), (0, -1), 'LEFT'),
+    ])
+    
+    for i in range(1, len(prof_rows)):
+        bg = ROW_A if i % 2 == 0 else ROW_B
+        prof_ts.add('BACKGROUND', (0, i), (-1, i), bg)
+        
+        p_type = prof_rows[i][1]
+        if 'Fader' in p_type or 'Fluctuating' in p_type:
+            prof_ts.add('TEXTCOLOR', (1, i), (1, i), colors.HexColor('#d97706'))
+            prof_ts.add('FONTNAME', (1, i), (1, i), 'Helvetica-Bold')
+        elif 'Bloomer' in p_type or 'Steady' in p_type:
+            prof_ts.add('TEXTCOLOR', (1, i), (1, i), colors.HexColor('#16a34a'))
+            prof_ts.add('FONTNAME', (1, i), (1, i), 'Helvetica-Bold')
+            
+    prof_table.setStyle(prof_ts)
+    elements.append(prof_table)
     elements.append(Spacer(1, 6 * mm))
 
     # ── AI / RULE-BASED SUMMARY ───────────────────────────────

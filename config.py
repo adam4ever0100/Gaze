@@ -152,6 +152,20 @@ HEAD_PITCH_THRESHOLD = 25     # Max up/down rotation
 GAZE_THRESHOLD = 0.3          # Max deviation from center
 
 # ============================================================
+# Multi-State Attention Detection
+# ============================================================
+# Drowsy detection
+DROWSY_EAR_THRESHOLD = 0.22    # Avg EAR below this = drowsy eyes
+DROWSY_BLINK_RATE_MIN = 25     # Blinks/min above this = drowsy
+DROWSY_HEAD_PITCH_MIN = 10     # Head drooping threshold (degrees)
+
+# Phone use detection
+PHONE_USE_PITCH_THRESHOLD = -15  # Looking down threshold (degrees)
+
+# Absent detection
+ABSENT_NO_FACE_SECONDS = 3    # Seconds without face = absent
+
+# ============================================================
 # Alert Configuration
 # ============================================================
 ALERT_THRESHOLD = 0.35        # Below this triggers a distraction alert

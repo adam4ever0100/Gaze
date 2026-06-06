@@ -482,6 +482,26 @@ class TestPDFReport:
         assert r.status_code == 200
         assert len(r.data) > 500  # PDF should have substantial content
 
+    def test_pdf_report_with_multistate_and_temporal_data(self):
+        from backend.database import create_session, add_student, record_attention, end_session
+        sid = create_session('PDF_MULTI', 'Teacher')
+        student_id = add_student(sid, 'Student Multi')
+        
+        # Record multiple states to ensure our calculations run with all states represented
+        record_attention(student_id, sid, 0.95, 'Focused')
+        record_attention(student_id, sid, 0.55, 'Partially Attentive')
+        record_attention(student_id, sid, 0.25, 'Distracted')
+        record_attention(student_id, sid, 0.20, 'Drowsy')
+        record_attention(student_id, sid, 0.15, 'Phone Use')
+        record_attention(student_id, sid, 0.00, 'Absent')
+        
+        end_session(sid)
+        
+        r = self.client.get(f'/sessions/{sid}/report.pdf')
+        assert r.status_code == 200
+        assert r.content_type == 'application/pdf'
+        assert len(r.data) > 1000
+
 
 # ============================================================
 # Test: API Documentation
@@ -671,7 +691,328 @@ class TestBackendAPIExtended:
         data = r.get_json()
         assert isinstance(data.get('sessions', []), list)
 
+    def test_temporal_analysis_endpoint_valid(self):
+        import backend.database as db
+        self.original_path = db.DB_PATH
+        self.temp_dir = tempfile.mkdtemp()
+        db.DB_PATH = os.path.join(self.temp_dir, 'test.db')
+        with db._buffer_lock:
+            db._attention_buffer = []
+        db.init_db()
+        
+        try:
+            sid = db.create_session("TEMP_API", "Teacher")
+            s_id = db.add_student(sid, "API Student")
+            db.record_attention(s_id, sid, 0.80, "Focused")
+            db.flush_attention_buffer()
+            
+            res = self.client.get(f'/sessions/{sid}/temporal-analysis')
+            assert res.status_code == 200
+            data = json.loads(res.data)
+            assert data['session_id'] == sid
+            assert len(data['students']) == 1
+            assert data['students'][0]['name'] == "API Student"
+        finally:
+            with db._buffer_lock:
+                db._attention_buffer = []
+            db.DB_PATH = self.original_path
+
+
+# ============================================================
+# Test: Multi-State Attention & Calibration & Environment Pre-check
+# ============================================================
+
+class TestMultiStateAttention:
+    """Test multi-state attention status classification logic."""
+
+    def test_classify_status_focused(self):
+        from src.ai_engine.attention_detector import AttentionDetector
+        detector = AttentionDetector()
+        assert detector._classify_status(0.85) == "Focused"
+
+    def test_classify_status_partially_attentive(self):
+        from src.ai_engine.attention_detector import AttentionDetector
+        detector = AttentionDetector()
+        assert detector._classify_status(0.55) == "Partially Attentive"
+
+    def test_classify_status_distracted(self):
+        from src.ai_engine.attention_detector import AttentionDetector
+        detector = AttentionDetector()
+        assert detector._classify_status(0.20) == "Distracted"
+
+    def test_classify_status_phone_use(self):
+        from src.ai_engine.attention_detector import AttentionDetector
+        detector = AttentionDetector()
+        assert detector._classify_status(0.35, head_pose=(0, -20, 0)) == "Phone Use"
+
+    def test_classify_status_drowsy(self):
+        from src.ai_engine.attention_detector import AttentionDetector
+        detector = AttentionDetector()
+        for _ in range(15):
+            detector.recent_ear_values.append(0.18)
+        assert detector._classify_status(0.40, ear=0.18, blink_rate=30, head_pose=(0, 15, 0)) == "Drowsy"
+
+
+# ============================================================
+# Test: Adaptive Rolling Baseline
+# ============================================================
+
+class TestAdaptiveBaseline:
+    """Test adaptive per-student baseline updates."""
+
+    def test_adaptive_baseline_calculation(self):
+        student = {
+            'name': 'Test Adaptive',
+            'rolling_scores': [],
+            'personal_baseline': 0.0,
+            'history': []
+        }
+        for score in [0.8, 0.82, 0.78, 0.85, 0.81, 0.83, 0.79, 0.84, 0.80, 0.82]:
+            student['rolling_scores'].append(score)
+            
+        # Calculation formula from server.py:
+        if len(student['rolling_scores']) >= 10:
+            student['personal_baseline'] = round(
+                sum(student['rolling_scores']) / len(student['rolling_scores']), 3
+            )
+            
+        assert student['personal_baseline'] == round(sum([0.8, 0.82, 0.78, 0.85, 0.81, 0.83, 0.79, 0.84, 0.80, 0.82]) / 10, 3)
+
+
+# ============================================================
+# Test: Temporal Pattern Analysis
+# ============================================================
+
+class TestTemporalAnalysis:
+    """Test temporal pattern analysis features."""
+
+    def setup_method(self):
+        import backend.database as db
+        self.original_path = db.DB_PATH
+        self.temp_dir = tempfile.mkdtemp()
+        db.DB_PATH = os.path.join(self.temp_dir, 'test.db')
+        with db._buffer_lock:
+            db._attention_buffer = []
+        db.init_db()
+        self.db = db
+
+    def teardown_method(self):
+        with self.db._buffer_lock:
+            db = self.db
+            db._attention_buffer = []
+        self.db.DB_PATH = self.original_path
+
+    def _insert_record(self, student_id, session_id, score, status, timestamp):
+        with self.db.get_db() as conn:
+            conn.execute(
+                "INSERT INTO attention_records (student_id, session_id, attention_score, status, timestamp) VALUES (?, ?, ?, ?, ?)",
+                (student_id, session_id, score, status, timestamp)
+            )
+
+    def test_detect_attention_spans(self):
+        from backend.temporal_analysis import detect_attention_spans
+        
+        session_id = self.db.create_session("TEMP01", "Teacher")
+        student_id = self.db.add_student(session_id, "Student Spans")
+        
+        t = time.time()
+        self._insert_record(student_id, session_id, 0.90, "Focused", t)
+        self._insert_record(student_id, session_id, 0.85, "Focused", t + 5)
+        
+        self._insert_record(student_id, session_id, 0.30, "Distracted", t + 10)
+        self._insert_record(student_id, session_id, 0.25, "Distracted", t + 15)
+        
+        self._insert_record(student_id, session_id, 0.95, "Focused", t + 20)
+        
+        spans = detect_attention_spans(student_id, session_id)
+        assert len(spans) == 3
+        assert spans[0]['state'] == 'Focused'
+        assert spans[0]['duration_sec'] == 10.0
+        assert spans[1]['state'] == 'Distracted'
+        assert spans[1]['duration_sec'] == 10.0
+        assert spans[2]['state'] == 'Focused'
+        assert spans[2]['duration_sec'] == 0.0
+
+    def test_detect_fatigue_onset(self):
+        from backend.temporal_analysis import detect_fatigue_onset
+        
+        session_id = self.db.create_session("TEMP02", "Teacher")
+        student_id = self.db.add_student(session_id, "Student Fatigue")
+        
+        t = time.time()
+        with self.db.get_db() as conn:
+            conn.execute("UPDATE sessions SET started_at = ? WHERE id = ?", (t, session_id))
+            
+        for i in range(6):
+            self._insert_record(student_id, session_id, 0.90, "Focused", t + i*60)
+        for i in range(6):
+            self._insert_record(student_id, session_id, 0.50, "Partially Attentive", t + (6+i)*60)
+            
+        fatigue = detect_fatigue_onset(student_id, session_id, window_min=5.0, drop_threshold=0.15)
+        assert len(fatigue) > 0
+        assert fatigue[0]['drop'] > 0.15
+        assert fatigue[0]['score_before'] > 0.8
+        assert fatigue[0]['score_after'] < 0.7
+
+    def test_detect_recovery(self):
+        from backend.temporal_analysis import detect_recovery
+        
+        session_id = self.db.create_session("TEMP03", "Teacher")
+        student_id = self.db.add_student(session_id, "Student Recovery")
+        
+        t = time.time()
+        with self.db.get_db() as conn:
+            conn.execute("UPDATE sessions SET started_at = ? WHERE id = ?", (t, session_id))
+            
+        self._insert_record(student_id, session_id, 0.20, "Distracted", t)
+        self._insert_record(student_id, session_id, 0.15, "Distracted", t + 15)
+        
+        self._insert_record(student_id, session_id, 0.90, "Focused", t + 20)
+        self._insert_record(student_id, session_id, 0.95, "Focused", t + 35)
+        
+        recoveries = detect_recovery(student_id, session_id, min_distracted_sec=10)
+        assert len(recoveries) == 1
+        assert recoveries[0]['distracted_duration_sec'] == 20.0
+        assert recoveries[0]['recovery_score'] >= 0.90
+
+    def test_get_class_trends(self):
+        from backend.temporal_analysis import get_class_trends
+        
+        session_id = self.db.create_session("TEMP04", "Teacher")
+        s1 = self.db.add_student(session_id, "Student 1")
+        s2 = self.db.add_student(session_id, "Student 2")
+        
+        t = time.time()
+        with self.db.get_db() as conn:
+            conn.execute("UPDATE sessions SET started_at = ? WHERE id = ?", (t, session_id))
+            
+        self._insert_record(s1, session_id, 0.80, "Focused", t + 60)
+        self._insert_record(s2, session_id, 0.90, "Focused", t + 120)
+        
+        self._insert_record(s1, session_id, 0.40, "Partially Attentive", t + 360)
+        self._insert_record(s2, session_id, 0.50, "Partially Attentive", t + 420)
+        
+        trends = get_class_trends(session_id, bucket_minutes=5.0)
+        assert len(trends) == 2
+        assert trends[0]['minute_start'] == 0.0
+        assert trends[0]['avg_score'] == 0.85
+        assert trends[1]['minute_start'] == 5.0
+        assert trends[1]['avg_score'] == 0.45
+
+    def test_get_student_engagement_profile(self):
+        from backend.temporal_analysis import get_student_engagement_profile
+        
+        session_id = self.db.create_session("TEMP05", "Teacher")
+        student_id = self.db.add_student(session_id, "Student Profile")
+        
+        t = time.time()
+        with self.db.get_db() as conn:
+            conn.execute("UPDATE sessions SET started_at = ? WHERE id = ?", (t, session_id))
+            
+        self._insert_record(student_id, session_id, 0.90, "Focused", t)
+        self._insert_record(student_id, session_id, 0.85, "Focused", t + 10)
+        
+        self._insert_record(student_id, session_id, 0.50, "Partially Attentive", t + 20)
+        self._insert_record(student_id, session_id, 0.45, "Partially Attentive", t + 30)
+        
+        profile = get_student_engagement_profile(student_id, session_id)
+        assert profile['profile'] == 'early-fader'
+        assert profile['avg_first_half'] == 0.875
+        assert profile['avg_second_half'] == 0.475
+
+
+# ============================================================
+# Test: SocketIO Nudge Events
+# ============================================================
+
+class TestSocketIONudge:
+    """Test Socket.IO nudge and nudge acknowledgment events."""
+
+    def setup_method(self):
+        from backend.server import app, socketio
+        import backend.database as db
+        import tempfile
+        
+        self.original_path = db.DB_PATH
+        self.temp_dir = tempfile.mkdtemp()
+        db.DB_PATH = os.path.join(self.temp_dir, 'test.db')
+        db.init_db()
+        self.db = db
+        
+        app.config['TESTING'] = True
+        self.app = app
+        self.socketio = socketio
+
+    def teardown_method(self):
+        self.db.DB_PATH = self.original_path
+
+    def test_nudge_and_acknowledgment(self):
+        from backend.server import rooms, sid_to_room, TEACHER_PASSWORD
+        
+        # Reset server's in-memory room states
+        rooms.clear()
+        sid_to_room.clear()
+        
+        # Create teacher client
+        teacher_client = self.socketio.test_client(self.app)
+        
+        # Teacher creates room
+        teacher_client.emit('create-room', {
+            'teacher_name': 'Dr. Smith',
+            'password': TEACHER_PASSWORD,
+            'session_name': 'Test Session'
+        })
+        
+        r_created = teacher_client.get_received()
+        assert len(r_created) > 0
+        room_code = None
+        for event in r_created:
+            if event['name'] == 'room-created':
+                room_code = event['args'][0]['room_code']
+        
+        assert room_code is not None
+        
+        # Create student client
+        student_client = self.socketio.test_client(self.app)
+        
+        # Student joins room
+        student_client.emit('join-room', {
+            'room_code': room_code,
+            'student_name': 'Alice',
+            'score_only': False
+        })
+        
+        r_joined = student_client.get_received()
+        assert any(e['name'] == 'room-joined' for e in r_joined)
+        
+        # Get student's socket session identifier (sid) from rooms state
+        student_sid = list(rooms[room_code]['students'].keys())[0]
+        
+        # Teacher sends nudge to student
+        teacher_client.emit('nudge-student', {
+            'target_sid': student_sid,
+            'message': 'Please stay focused!'
+        })
+        
+        # Verify student receives the nudge
+        r_student = student_client.get_received()
+        nudge_event = next((e for e in r_student if e['name'] == 'attention-nudge'), None)
+        assert nudge_event is not None
+        assert nudge_event['args'][0]['message'] == 'Please stay focused!'
+        
+        # Student acknowledges the nudge
+        student_client.emit('nudge-acknowledged')
+        
+        # Verify teacher receives the acknowledgment
+        r_teacher = teacher_client.get_received()
+        ack_event = next((e for e in r_teacher if e['name'] == 'student-nudge-acknowledged'), None)
+        assert ack_event is not None
+        assert ack_event['args'][0]['student_name'] == 'Alice'
+        assert ack_event['args'][0]['sid'] == student_sid
+
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
+
+
 

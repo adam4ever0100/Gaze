@@ -1,0 +1,36 @@
+frame_idx,timestamp_sec,label
+# ============================================================
+# Gaze Attention Monitoring — Ground Truth Labels Template
+# ============================================================
+#
+# This template shows the CSV format expected by evaluate_algorithm.py.
+#
+# Columns:
+#   frame_idx      — 0-based frame index in the video file
+#   timestamp_sec  — Timestamp in seconds from video start
+#   label          — Ground-truth attention label
+#
+# Supported labels:
+#   Focused              — Student is actively looking at the screen
+#   Distracted           — Student is looking away or head is turned
+#   Partially Attentive  — Student is somewhat engaged (borderline)
+#   Drowsy               — Student has half-closed eyes, slow blinks
+#   Absent               — Student is not visible (no face detected)
+#   Phone Use            — Student is looking down (at phone/lap)
+#
+# Notes:
+#   - The guided recording mode (--guided-record) generates this
+#     file automatically.
+#   - For manual labeling, you can use a video player to note
+#     timestamps and assign labels per frame or per time range.
+#   - You do not need to label every single frame — the evaluation
+#     script only compares frames that appear in both the video and
+#     this CSV.
+#
+# Example rows (remove the leading '# ' when filling in):
+# 0,0.000,Focused
+# 15,1.000,Focused
+# 30,2.000,Focused
+# 75,5.000,Distracted
+# 90,6.000,Distracted
+# 120,8.000,Drowsy

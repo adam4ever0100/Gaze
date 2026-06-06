@@ -101,14 +101,14 @@
                     <div class="header-left">
                         <h2>Live Dashboard</h2>
                         <div class="room-badge">
-                        Room: <strong id="roomCodeDisplay">—</strong>
+                            Room: <strong id="roomCodeDisplay">—</strong>
+                        </div>
                         <button class="btn-room-action" id="copyLinkBtn" onclick="copyRoomLink()" title="Copy invite link">
                             🔗 Copy Link
                         </button>
                         <button class="btn-room-action" id="showQrBtn" onclick="showQRCode()" title="Show QR code">
                             📷 QR Code
                         </button>
-                    </div>
                         <div class="session-timer">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14"
                                 height="14">
@@ -375,6 +375,7 @@
                             <button class="modal-tab" data-tab="ai-summary">AI Summary</button>
                             <button class="modal-tab" data-tab="annotations">Annotations</button>
                             <button class="modal-tab" data-tab="timeline">Timeline</button>
+                            <button class="modal-tab" data-tab="temporal">📊 Insights</button>
                         </div>
                         <div class="modal-body" id="modalBody">
                             <div class="modal-loading">Loading...</div>
