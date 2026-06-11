@@ -37,7 +37,9 @@ const state = {
     alertSound: null,
     reconnectAttempts: 0,
     theme: localStorage.getItem('gaze-theme') || 'dark',
-    screenSharePeerSid: null
+    screenSharePeerSid: null,
+    avatarIndex: 1,
+    peers: {}
 };
 
 // DOM elements
@@ -128,7 +130,8 @@ function connectSocket() {
             state.socket.emit('join-room', {
                 room_code: state.roomCode,
                 student_name: state.studentName,
-                score_only: state.scoreOnlyMode
+                score_only: state.scoreOnlyMode,
+                avatar_index: state.avatarIndex
             });
         }
     });
@@ -350,7 +353,13 @@ async function joinRoom() {
             // Add audio tracks from real stream to blank stream
             state.localStream.getAudioTracks().forEach(t => state.blankStream.addTrack(t));
             // Show Score Only overlay on local video tile
-            if (el.scoreOnlyOverlay) el.scoreOnlyOverlay.classList.remove('hidden');
+            if (el.scoreOnlyOverlay) {
+                el.scoreOnlyOverlay.classList.remove('hidden');
+                const localAvatarImg = document.getElementById('localAvatarImg');
+                if (localAvatarImg) {
+                    localAvatarImg.src = `avatars/avatar_${state.avatarIndex}.png`;
+                }
+            }
             console.log('Score Only mode: camera private, blank stream for peers');
         }
 
@@ -390,7 +399,8 @@ async function joinRoom() {
     state.socket.emit('join-room', {
         room_code: state.roomCode,
         student_name: state.studentName,
-        score_only: state.scoreOnlyMode
+        score_only: state.scoreOnlyMode,
+        avatar_index: state.avatarIndex
     });
 }
 
@@ -414,6 +424,14 @@ function handleRoomJoined(data) {
     console.log('Joined room:', data.room_code);
     state.monitoring = true;
     state.sessionStart = Date.now();
+    state.peers = {};
+
+    // Store existing peers' metadata
+    if (data.participants) {
+        data.participants.forEach(p => {
+            state.peers[p.sid] = p;
+        });
+    }
 
     // Show classroom UI
     el.joinSection.classList.add('hidden');
@@ -789,12 +807,14 @@ async function connectToLiveKit(url, token) {
 
 function handlePeerJoined(data) {
     console.log('Peer joined via Socket.IO:', data.name);
+    state.peers[data.sid] = data;
     // Video tile is created by LiveKit events (ParticipantConnected / TrackSubscribed).
     // No need to create duplicate UI tiles here.
 }
 
 function handlePeerLeft(data) {
     console.log('Peer left:', data.name);
+    delete state.peers[data.sid];
     // LiveKit handles removing video tiles via ParticipantDisconnected.
     // Clean up any leftover tiles — try both raw SID and LiveKit identity format.
     removePeer(data.sid);
@@ -849,6 +869,8 @@ function leaveRoom() {
         state.socket.emit('leave-room');
     }
 
+    state.peers = {};
+
     // Reset UI
     el.classroomSection.classList.add('hidden');
     el.joinSection.classList.remove('hidden');
@@ -884,12 +906,34 @@ function removePeer(identity) {
 // ============================================================
 
 function addParticipantUI(sid, name, isTeacher) {
+    // Determine avatar metadata if available
+    let isScoreOnly = false;
+    let avatarIdx = 1;
+    // sid from LiveKit is prefixed with "student-" or "teacher-".
+    // Try to strip prefix to get the raw Socket.IO sid if needed, or check state.peers
+    const rawSid = sid.replace('student-', '').replace('teacher-', '');
+    if (state.peers[rawSid]) {
+        isScoreOnly = state.peers[rawSid].score_only;
+        avatarIdx = state.peers[rawSid].avatar_index || 1;
+    }
+
     // Add video tile
     if (!document.getElementById(`tile-${sid}`)) {
         const tile = document.createElement('div');
-        tile.className = 'video-tile remote-tile';
+        tile.className = `video-tile remote-tile ${isScoreOnly ? 'score-only-mode' : ''}`;
         tile.id = `tile-${sid}`;
+
+        let overlayHtml = '';
+        if (isScoreOnly) {
+            overlayHtml = `
+                <div class="video-avatar-overlay">
+                    <img src="avatars/avatar_${avatarIdx}.png" alt="Avatar">
+                </div>
+            `;
+        }
+
         tile.innerHTML = `
+            ${overlayHtml}
             <video id="video-${sid}" autoplay playsinline></video>
             <div class="video-label">
                 <span class="video-name">${escapeHtml(name)}${isTeacher ? ' 👩‍🏫' : ''}</span>
@@ -1388,12 +1432,28 @@ function init() {
         validateForm();
     });
     el.consentCheckbox.addEventListener('change', validateForm);
+    
+    el.scoreOnlyCheckbox.addEventListener('change', (e) => {
+        const avatarContainer = document.getElementById('avatarSelectionContainer');
+        if (avatarContainer) {
+            avatarContainer.style.display = e.target.checked ? 'block' : 'none';
+        }
+    });
 
     el.joinBtn.addEventListener('click', joinRoom);
     el.toggleCameraBtn.addEventListener('click', toggleCamera);
     el.toggleMicBtn.addEventListener('click', toggleMic);
     el.leaveBtn.addEventListener('click', leaveRoom);
     el.shareScreenBtn.addEventListener('click', toggleScreenShare);
+
+    const avatarOptions = document.querySelectorAll('.avatar-option');
+    avatarOptions.forEach(opt => {
+        opt.addEventListener('click', (e) => {
+            avatarOptions.forEach(o => o.classList.remove('selected'));
+            e.currentTarget.classList.add('selected');
+            state.avatarIndex = parseInt(e.currentTarget.dataset.index);
+        });
+    });
 
     // Hide share screen button by default (teacher must grant permission)
     el.shareScreenBtn.classList.add('hidden');

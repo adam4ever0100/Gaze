@@ -246,6 +246,7 @@ def handle_join_room(data):
     room_code = data.get('room_code', '').upper().strip()
     student_name = data.get('student_name', 'Anonymous')
     score_only = bool(data.get('score_only', False))
+    avatar_index = int(data.get('avatar_index', 1))
 
     if room_code not in rooms:
         emit('error', {'message': f'Room {room_code} not found'})
@@ -269,6 +270,7 @@ def handle_join_room(data):
         'last_update': time.time(),
         'history': [],
         'score_only': score_only,
+        'avatar_index': avatar_index,
         # Adaptive per-student baseline: rolling 5-min average
         'rolling_scores': deque(maxlen=150),  # ~5 min at 2s intervals
         'personal_baseline': 0.0,
@@ -282,7 +284,7 @@ def handle_join_room(data):
         'room_code': room_code,
         'ice_servers': ICE_SERVERS,
         'participants': [
-            {'sid': sid, 'name': s['name'], 'is_teacher': False}
+            {'sid': sid, 'name': s['name'], 'is_teacher': False, 'score_only': s['score_only'], 'avatar_index': s.get('avatar_index', 1)}
             for sid, s in room['students'].items()
         ] + [{'sid': room['teacher_sid'], 'name': room['teacher_name'], 'is_teacher': True}]
     })
@@ -291,7 +293,9 @@ def handle_join_room(data):
     emit('peer-joined', {
         'sid': request.sid,
         'name': student_name,
-        'is_teacher': False
+        'is_teacher': False,
+        'score_only': score_only,
+        'avatar_index': avatar_index
     }, room=room_code, skip_sid=request.sid)
 
     # Update teacher dashboard — notify of new join (or late-join)
@@ -301,7 +305,8 @@ def handle_join_room(data):
         'sid': request.sid,
         'student_count': len(room['students']),
         'is_late': already_in_session,
-        'score_only': score_only
+        'score_only': score_only,
+        'avatar_index': avatar_index
     }, room=room_code)
 
     print(f"Student {student_name} joined room {room_code}")

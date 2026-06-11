@@ -71,6 +71,18 @@
                     <input type="text" id="studentName" placeholder="Enter your full name" required autocomplete="name">
                 </div>
 
+                <div class="form-group" id="avatarSelectionContainer" style="display: none;">
+                    <label>Choose Avatar (Score-Only Mode)</label>
+                    <div class="avatar-picker" id="avatarPicker">
+                        <img src="avatars/avatar_1.png" class="avatar-option selected" data-index="1" alt="Avatar 1">
+                        <img src="avatars/avatar_2.png" class="avatar-option" data-index="2" alt="Avatar 2">
+                        <img src="avatars/avatar_3.png" class="avatar-option" data-index="3" alt="Avatar 3">
+                        <img src="avatars/avatar_4.png" class="avatar-option" data-index="4" alt="Avatar 4">
+                        <img src="avatars/avatar_5.png" class="avatar-option" data-index="5" alt="Avatar 5">
+                        <img src="avatars/avatar_6.png" class="avatar-option" data-index="6" alt="Avatar 6">
+                    </div>
+                </div>
+
                 <div class="form-group">
                     <label for="roomCode">Room Code</label>
                     <input type="text" id="roomCode" placeholder="e.g. ABC123" maxlength="6"
@@ -114,7 +126,7 @@
                         <!-- Score Only overlay (shown when privacy mode is on) -->
                         <div class="score-only-overlay hidden" id="scoreOnlyOverlay">
                             <div class="score-only-content">
-                                <span class="score-only-icon">🔒</span>
+                                <img src="avatars/avatar_1.png" id="localAvatarImg" class="score-only-avatar" alt="Avatar">
                                 <span class="score-only-label">Score Only</span>
                                 <span class="score-only-hint">Camera is private — only scores are shared</span>
                             </div>

@@ -1231,17 +1231,9 @@ function addRemoteVideoTile(identity, name, livekitTrack) {
     tile.id = `teacher-tile-${identity}`;
 
     if (isScoreOnly) {
-        // Score-Only student: show dynamic SVG avatar instead of video
-        const avatarIndex = getAvatarIndex(name);
-        const AVATAR_GRADIENTS = [
-            { start: '#a78bfa', end: '#4f46e5' }, // Indigo/Purple
-            { start: '#34d399', end: '#0f766e' }, // Emerald/Teal
-            { start: '#fb7185', end: '#6d28d9' }, // Rose/Violet
-            { start: '#fbbf24', end: '#c2410c' }, // Amber/Orange
-            { start: '#38bdf8', end: '#1d4ed8' }, // Sky/Blue
-            { start: '#f472b6', end: '#be185d' }  // Fuchsia/Pink
-        ];
-        const grad = AVATAR_GRADIENTS[(avatarIndex - 1) % AVATAR_GRADIENTS.length];
+        // Score-Only student: show Apple Avatar instead of video
+        const student = state.cachedStudents.find(s => s.sid === identity || `student-${s.sid}` === identity);
+        const avatarIndex = (student && student.avatar_index) ? student.avatar_index : 1;
 
         tile.innerHTML = `
             <video autoplay playsinline style="display:none"></video>
@@ -1253,35 +1245,7 @@ function addRemoteVideoTile(identity, name, livekitTrack) {
             <div class="avatar-overlay" id="avatar-${identity}" data-status="Focused">
                 <div class="avatar-ring">
                     <div class="avatar-circle">
-                        <svg class="avatar-svg" viewBox="0 0 100 100" width="100%" height="100%">
-                            <defs>
-                                <radialGradient id="faceGrad-${identity}" cx="50%" cy="50%" r="50%" fx="35%" fy="35%">
-                                    <stop offset="0%" stop-color="${grad.start}" />
-                                    <stop offset="100%" stop-color="${grad.end}" />
-                                </radialGradient>
-                            </defs>
-                            <circle cx="50" cy="50" r="40" fill="url(#faceGrad-${identity})" />
-                            
-                            <g class="avatar-eyes">
-                                <g class="eyes-open">
-                                    <circle class="eye-bg" cx="35" cy="45" r="6" fill="white" />
-                                    <circle class="pupil" cx="35" cy="45" r="2.5" fill="#0f172a" />
-                                </g>
-                                <g class="eyes-open">
-                                    <circle class="eye-bg" cx="65" cy="45" r="6" fill="white" />
-                                    <circle class="pupil" cx="65" cy="45" r="2.5" fill="#0f172a" />
-                                </g>
-                                <path class="eyes-closed" d="M 29,45 Q 35,51 41,45" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" />
-                                <path class="eyes-closed" d="M 59,45 Q 65,51 71,45" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" />
-                            </g>
-                            
-                            <g class="avatar-mouths">
-                                <path class="mouth mouth-smile" d="M 36,62 Q 50,72 64,62" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" />
-                                <path class="mouth mouth-neutral" d="M 38,64 L 62,64" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" />
-                                <path class="mouth mouth-frown" d="M 38,68 Q 50,60 62,68" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" />
-                                <ellipse class="mouth mouth-yawn" cx="50" cy="65" rx="5" ry="8" fill="white" />
-                            </g>
-                        </svg>
+                        <img class="avatar-svg" src="avatars/avatar_${avatarIndex}.png" style="width:100%; height:100%; object-fit:cover; border-radius:50%;" alt="Avatar" />
                     </div>
                 </div>
                 <div class="avatar-score-text" id="avatar-score-${identity}">--%</div>
