@@ -240,6 +240,21 @@ def handle_create_room(data):
     print(f"Room {room_code} created by {teacher_name}" + (f" [{session_name}]" if session_name else ""))
 
 
+@socketio.on('reclaim-room')
+def handle_reclaim_room(data):
+    """Teacher reclaims a room after a brief disconnect."""
+    room_code = data.get('room_code', '').upper().strip()
+    
+    if room_code in rooms:
+        # Re-assign teacher sid
+        rooms[room_code]['teacher_sid'] = request.sid
+        sid_to_room[request.sid] = room_code
+        join_room(room_code)
+        print(f"Room {room_code} reclaimed by {data.get('teacher_name')}")
+    else:
+        emit('room-closed', {'message': 'Session expired'})
+
+
 @socketio.on('join-room')
 def handle_join_room(data):
     """Student joins an existing room."""
@@ -258,6 +273,13 @@ def handle_join_room(data):
     if len(room['students']) >= MAX_STUDENTS_PER_ROOM:
         emit('error', {'message': f'Room is full ({MAX_STUDENTS_PER_ROOM} students max)'})
         return
+
+    # Handle reconnections by removing any existing student with the same name
+    stale_sids = [s_sid for s_sid, s in room['students'].items() if s['name'] == student_name]
+    for stale_sid in stale_sids:
+        room['students'].pop(stale_sid, None)
+        # Notify peers that the old instance left so it gets removed from the UI
+        emit('peer-left', {'sid': stale_sid, 'name': student_name}, room=room_code)
 
     # Add student to DB
     student_db_id = add_student(room['session_id'], student_name)
@@ -826,11 +848,20 @@ def _handle_disconnect(sid):
     room = rooms[room_code]
 
     if sid == room['teacher_sid']:
-        end_session(room['session_id'])
-        emit('room-closed', {'message': 'Teacher ended the session'}, room=room_code)
-        del rooms[room_code]
-        chat_history.pop(room_code, None)
-        print(f"Room {room_code} closed (teacher left)")
+        # Give teacher a grace period to reconnect
+        def delayed_close(r_code, old_sid):
+            socketio.sleep(15)  # 15 seconds grace period
+            r = rooms.get(r_code)
+            # Only close if the room hasn't been reclaimed
+            if r and r.get('teacher_sid') == old_sid:
+                end_session(r['session_id'])
+                socketio.emit('room-closed', {'message': 'Teacher ended the session'}, room=r_code)
+                del rooms[r_code]
+                chat_history.pop(r_code, None)
+                print(f"Room {r_code} closed (teacher disconnected for >15s)")
+
+        socketio.start_background_task(delayed_close, room_code, sid)
+        print(f"Teacher disconnected from room {room_code}, waiting 15s to close")
         return
 
     student = room['students'].pop(sid, None)

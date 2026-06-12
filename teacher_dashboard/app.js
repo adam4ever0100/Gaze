@@ -182,6 +182,12 @@ function connectSocket() {
 
     state.socket.on('connect', () => {
         updateServerStatus(true);
+        if (state.authenticated && state.roomCode) {
+            state.socket.emit('reclaim-room', { 
+                room_code: state.roomCode, 
+                teacher_name: state.teacherName 
+            });
+        }
     });
 
     state.socket.on('disconnect', () => {
